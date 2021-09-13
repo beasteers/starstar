@@ -41,7 +41,7 @@ We have a function that wants to pass arguments to two different functions witho
 import starstar
 
 def func_a(a=None, b=None, c=None):
-		return a, b, c
+    return a, b, c
 
 def func_b(d=None, e=None, f=None):
     return d, e, f
@@ -132,5 +132,7 @@ print(inspect.signature(asdf))  # (q, x, y, z)
 ```
 
 ## Wishlist
- - merging docstrings? Idk might be too ambitious.
- - tracing pos args?
+ - merging docstrings? Idk might be too ambitious. 
+   - We would just need a reliable docstring parser and it would probably be something that we'd want enabled lazily
+ - tracing pos args? After some thought - this seems troublesome because I'm not sure how we'd deal with name conflicts between kwargs.
+ - function signature to config yaml binding? (dump function defaults to config file, load function defaults from config file)
