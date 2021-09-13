@@ -119,5 +119,7 @@ print(inspect.signature(asdf))  # (q, x, y, z)
 ```
 
 ## Wishlist
- - merging docstrings? Idk might be too ambitious.
+ - merging docstrings? Idk might be too ambitious. 
+   - We would just need a reliable docstring parser and it would probably be something that we'd want enabled lazily
  - tracing pos args?
+ - function signature to config yaml binding? (dump function defaults to config file, load function defaults from config file)
