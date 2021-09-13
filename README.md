@@ -28,7 +28,7 @@ We have a function that wants to pass arguments to two different functions witho
 import starstar
 
 def func_a(a=None, b=None, c=None):
-		return a, b, c
+    return a, b, c
 
 def func_b(d=None, e=None, f=None):
     return d, e, f
