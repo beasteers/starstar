@@ -2,12 +2,25 @@
 
 Finally! Variable keyword tracing in Python.
 
+Because this:
+```python
+def main(**kw):  # 1. kwargs can only help with one function
+    function_with_a_bunchhhh_of_arguments(**kw)  # but I only want to pass half !!
+    another_function_with_a_bunchhhh_of_arguments(**kw)  # and put the other half here !!!
+
+# 2. using it makes it a lot harder to understand the available parameters
+
+# hmmm let's see what can I pass to this function...
+help(main)  # main(**kw)
+# HALP????? aljdsflaksjdflkasjd
+```
+
 Do you:
  - dislike repeating function arguments and their default values and therefore use `**kwargs` a lot?
  - sometimes need to pass `**kwargs` down to multiple functions, but hate that it requires enumerating all but one of the functions parameters?
  - wish that Python could look inside itself and figure it out for you?
 
-`starstar` attempts to bridge the gap between nice, clean, and concise code (DRY ! <3) while maintaining informative introspectability of your functions.
+`starstar` attempts to bridge the gap between nice, clean, and concise code (DRY ! EVER! <3) while maintaining informative introspectability of your functions.
 
 It can: 
  - look at function signatures and uses the parameters described to sort out kwargs into separate dictionaries for each function. (`divide(kw, *funcs)`)
