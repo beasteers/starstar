@@ -1,19 +1,37 @@
-# starstar
+# starstar  ✨ ✨
 
-Finally! Variable keyword tracing in Python.
+Finally! Variable keyword tracing in Python. 
 
-Because this:
+Because this makes me sad:
 ```python
-def main(**kw):  # 1. kwargs can only help with one function
-    function_with_a_bunchhhh_of_arguments(**kw)  # but I only want to pass half !!
+def main(**kw):
+    function_with_a_bunchhhh_of_arguments(**kw)  # I only want to pass some of **kw !!
     another_function_with_a_bunchhhh_of_arguments(**kw)  # and put the other half here !!!
-
-# 2. using it makes it a lot harder to understand the available parameters
 
 # hmmm let's see what can I pass to this function...
 help(main)  # main(**kw)
 # HALP????? aljdsflaksjdflkasjd
 ```
+😖😭😭
+
+And why can't we have: 🧞‍♀️ 🧚🏻‍♀️ ✨ ✨ 
+```python
+import starstar
+
+def function_a(a=1, b=2, c=3): ...
+def function_b(x=8, y=9, z=10): ...
+
+@starstar.traceto(function_a, function_b)
+def main(**kw):
+    kw_a, kw_b = starstar.divide(kw, function_a, function_b)
+    function_a(**kw_a)  # gets: a, b, c
+    function_b(**kw_b)  # gets: x, y, z
+
+# hmmm let's see what can I pass to this function...
+help(main)  # main(a=1, b=2, c=3, x=8, y=9, z=10)
+# yayyyy!!!
+```
+😇🥰🌈
 
 Do you:
  - dislike repeating function arguments and their default values and therefore use `**kwargs` a lot?
@@ -29,7 +47,7 @@ It can:
  - modify a function's signature to include parameters from other functions that it wraps and sends its `**kwargs` to (`traceto(*funcs)`)
  - perform `functools.wraps`, while also preserving any arguments from the wrapper function in the signature (`wraps(func)(wrapper)`)
 
-I really hope you all find this useful! Please feel free to open issues if you have requests/suggestions cuz I want you to love this too!
+I really hope you find this useful! Please feel free to open issues if you have requests/suggestions cuz I want you to love this too!
 
 ## Install
 
@@ -182,3 +200,5 @@ func_x.update(**(config.get('func_x') or {}))
    - We would just need a reliable docstring parser and it would probably be something that we'd want enabled lazily
  - tracing pos args? After some thought - this seems troublesome because I'm not sure how we'd deal with name conflicts between kwargs.
  - function signature to config yaml binding? (dump function defaults to config file, load function defaults from config file)
+ - `traceto` allow skipping?
+ - have a more concrete plan around keyword name collisions.
