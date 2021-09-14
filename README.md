@@ -27,6 +27,8 @@ It can:
  - modify a function's signature to include parameters from other functions that it wraps and sends its `**kwargs` to (`traceto(*funcs)`)
  - perform `functools.wraps`, while also preserving any arguments from the wrapper function in the signature (`wraps(func)(wrapper)`)
 
+I really hope you all find this useful! Please feel free to open issues if you have requests/suggestions cuz I want you to love this too!
+
 ## Install
 
 ```bash

@@ -205,6 +205,7 @@ class _Defaults:
         return (signature(f), f.__defaults__, dict(f.__kwdefaults__), dict(self.kw_defaults))
 
     def _restore(self, frozen):
+        '''Use the output of self._freeze() to restore to a previous set of defaults.'''
         f = self.function
         f.__signature__, f.__defaults__, f.__kwdefaults__, self.kw_defaults = frozen
         return self
