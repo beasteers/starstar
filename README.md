@@ -94,7 +94,8 @@ print(inspect.signature(main))
 # (a=None, b=None, c=None, d=None, e=None, f=None, g=None, h=None, i=None)
 ```
 
-### `functools.wraps`, but better
+### Bonus
+#### `functools.wraps`, but better
 Builtin `functools.wraps` doesn't consider the arguments to `inner` so its wrapped signature doesn't know about them which can be misleading for any tools that rely on accurate signatures.
 ```python
 import functools
@@ -129,6 +130,44 @@ def asdf(x, y, z):
 
 import inspect
 print(inspect.signature(asdf))  # (q, x, y, z)
+```
+
+And you can also skip certain positional or named arguments if the wrapper already provides them.
+```python
+import starstar
+
+def deco(func):
+    @starstar.wraps(func, skip_n=2, skip_args=('blah',))
+    def inner(q, *a, **kw):
+        return q, func(1, 2, *a, blah=17, **kw)
+    return inner
+```
+
+#### Overriding function defaults
+Say we want to change the default arguments for a function (e.g. we want to offload that configuration to a yaml config file). 
+
+```python
+import starstar
+
+@starstar.defaults
+def func_x(x, y=6):
+    return x, y
+
+assert func_x(5) == 11
+func_x.update(y=7)
+assert func_x(5) == 12
+
+import inspect
+print(inspect.signature(func_x))  # (q, x, y, z)
+```
+
+```python
+import yaml
+
+with open(config_file, 'r') as f:
+    config = yaml.load(f)
+
+func_x.update(**(config.get('func_x') or {}))
 ```
 
 ## Wishlist

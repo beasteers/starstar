@@ -19,9 +19,9 @@ def test_divide():
 
 	kwx = dict(a='a', e='e', zzz='zzz')
 	with pytest.raises(TypeError):
-		starstar.divide(kwx, b, c, overflow='strict')
-	assert starstar.divide(kwx, b, c, overflow='separate') == [{'a': 'a'}, {'e': 'e'}, {'zzz': 'zzz'}]
-	assert starstar.divide(kwx, b, c, overflow=None) == [{'a': 'a'}, {'e': 'e'}]
+		starstar.divide(kwx, b, c, mode='strict')
+	assert starstar.divide(kwx, b, c, mode='separate') == [{'a': 'a'}, {'e': 'e'}, {'zzz': 'zzz'}]
+	assert starstar.divide(kwx, b, c, mode=None) == [{'a': 'a'}, {'e': 'e'}]
 
 
 	def b2(a=None, b=None, c=None, **kw):
@@ -31,11 +31,12 @@ def test_divide():
 		return 'c', d, e, f, kw
 
 	kwx = dict(a='a', e='e', zzz='zzz')
-	assert starstar.divide(kwx, b2, c2, overflow='strict') == [{'a': 'a', 'zzz': 'zzz'}, {'e': 'e', 'zzz': 'zzz'}]
+	assert starstar.divide(kwx, b2, c2, mode='strict') == [{'a': 'a', 'zzz': 'zzz'}, {'e': 'e', 'zzz': 'zzz'}]
 	assert starstar.divide(kwx, b2, c2) == [{'a': 'a', 'zzz': 'zzz'}, {'e': 'e', 'zzz': 'zzz'}]
-	assert starstar.divide(kwx, b2, c2, overflow_first=False) == [{'a': 'a', 'zzz': 'zzz'}, {'e': 'e', 'zzz': 'zzz'}]
-	assert starstar.divide(kwx, b2, c2, overflow_first=True) == [{'a': 'a', 'zzz': 'zzz'}, {'e': 'e'}]
-	assert starstar.divide(kwx, b2, c2, overflow='separate') == [{'a': 'a', 'zzz': 'zzz'}, {'e': 'e', 'zzz': 'zzz'}, {}]
+	assert starstar.divide(kwx, b2, c2, varkw=True) == [{'a': 'a', 'zzz': 'zzz'}, {'e': 'e', 'zzz': 'zzz'}]
+	assert starstar.divide(kwx, b2, c2, varkw='first') == [{'a': 'a', 'zzz': 'zzz'}, {'e': 'e'}]
+	assert starstar.divide(kwx, b2, c2, varkw=False, mode='ignore') == [{'a': 'a'}, {'e': 'e'}]
+	assert starstar.divide(kwx, b2, c2, mode='separate') == [{'a': 'a', 'zzz': 'zzz'}, {'e': 'e', 'zzz': 'zzz'}, {}]
 
 
 
@@ -91,3 +92,34 @@ def test_wraps():
 		pass
 
 	assert tuple(inspect.signature(asdf).parameters) == ('q', 'x', 'y', 'aaa', 'z', 'kwaaa')
+
+
+def test_defaults():
+	@starstar.defaults
+	def a(x, y=6, *args, z=7, **kw):
+		return x, y, z, kw
+
+	assert a(5) == (5, 6, 7, {})
+	assert a(10, 11, z=12) == (10, 11, 12, {})
+
+	assert tuple(inspect.signature(a).parameters) == ('x', 'y', 'args', 'z', 'kw')
+	assert tuple(p.default for p in inspect.signature(a).parameters.values()) == (
+		inspect._empty, 6, inspect._empty, 7, inspect._empty)
+
+	a.update(x=8, z=13)
+
+	assert a() == (8, 6, 13, {})
+	assert a(10, 11, z=12) == (10, 11, 12, {})
+
+	assert tuple(inspect.signature(a).parameters) == ('x', 'y', 'args', 'z', 'kw')
+	assert tuple(p.default for p in inspect.signature(a).parameters.values()) == (
+		8, 6, inspect._empty, 13, inspect._empty)
+
+	a.clear()
+
+	assert a(5) == (5, 6, 7, {})
+	assert a(10, 11, z=12) == (10, 11, 12, {})
+
+	assert tuple(inspect.signature(a).parameters) == ('x', 'y', 'args', 'z', 'kw')
+	assert tuple(p.default for p in inspect.signature(a).parameters.values()) == (
+		inspect._empty, 6, inspect._empty, 7, inspect._empty)
