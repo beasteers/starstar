@@ -22,7 +22,7 @@ Do you:
 
 `starstar` attempts to bridge the gap between nice, clean, and concise code (DRY ! EVER! <3) while maintaining informative introspectability of your functions. 
 
-It also tries to do it as efficiently as it can, minimizing the amount of overhead added to the actual function calls and try to use wrapper functions sparingly.
+It also tries to do it as efficiently as it can internally by minimizing the amount of overhead added to the actual function calls and trying to use wrapper functions sparingly.
 
 It can: 
  - look at function signatures and uses the parameters described to sort out kwargs into separate dictionaries for each function. (`divide(kw, *funcs)`)
