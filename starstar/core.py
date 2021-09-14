@@ -270,5 +270,5 @@ def update_defaults(func, **update):
 
 def get_defaults(func):
     '''Get the non-empty default arguments to a function (as a dict).'''
-    ps = ((k, p.default) for k, p in signature(func).parameters)
+    ps = ((k, p.default) for k, p in signature(func).parameters.items())
     return {k: d for k, d in ps if d is not inspect._empty}

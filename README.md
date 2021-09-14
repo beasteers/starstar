@@ -153,12 +153,15 @@ import starstar
 def func_x(x, y=6):
     return x, y
 
+import inspect
+print(inspect.signature(func_x))  # <Signature (x, y=6)>
+
 assert func_x(5) == 11
 func_x.update(y=7)
 assert func_x(5) == 12
 
 import inspect
-print(inspect.signature(func_x))  # (q, x, y, z)
+print(inspect.signature(func_x))  # <Signature (x, y=17)>
 ```
 
 ```python
