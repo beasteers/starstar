@@ -6,6 +6,8 @@ __pycache__/
 # mac
 .DS_Store
 
+# TODO
+cli.py
 
 # trash folders
 shh/
