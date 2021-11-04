@@ -123,3 +123,22 @@ def test_defaults():
 	assert tuple(inspect.signature(a).parameters) == ('x', 'y', 'args', 'z', 'kw')
 	assert tuple(p.default for p in inspect.signature(a).parameters.values()) == (
 		inspect._empty, 6, inspect._empty, 7, inspect._empty)
+
+
+def test_kw_filtering():
+	def func_a(a, b, c): 
+		return a+b+c
+    
+	assert starstar.filter(func_a, b=2, c=3, x=1, y=2) == {'b': 2, 'c': 3}
+
+	func_a1 = starstar.filtered(func_a)
+	func_a1(1, 2, c=3, x=1, y=2)  # just gonna ignore x and y
+
+	assert starstar.unmatched_kw(func_a1, 'a', 'b', 'z') == {'z'}
+	assert starstar.unmatched_kw(func_a1, 'a', 'b', 'z', reversed=True) == {'c'}
+
+	def func_b(a, b, c, **kw): 
+		return a+b+c, kw
+	assert starstar.unmatched_kw(func_b, 'a', 'b', 'z') == set()
+	assert starstar.unmatched_kw(func_b, 'a', 'b', 'z', reversed=True) == {'c'}
+

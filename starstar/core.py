@@ -1,6 +1,7 @@
 import inspect
-from inspect import signature as builtin_signature, Signature
-from functools import wraps as builtin_wraps, update_wrapper
+from inspect import signature as _builtin_signature, Signature as _Signature
+from functools import wraps as _builtin_wraps, update_wrapper as _update_wrapper
+
 
 POS_ONLY = inspect.Parameter.POSITIONAL_ONLY
 KW_ONLY = inspect.Parameter.KEYWORD_ONLY
@@ -15,17 +16,49 @@ def divide(kw, *funcs, mode='strict', varkw=True):
     '''Divide kwargs between multiple functions based on their signatures.
     
     Arguments:
-        overflow (str): How to handle extra keyword arguments.
-             - ``'separate'``: Add them as an extra dictionary at the end.
-             - ``'strict'``: If there are extra keyword arguments, raise a ``TypeError``. This 
-               will only raise if no function with a variable keyword is found or ``varkw == False``.
+        funcs (*callable): The functions you want to divide arguments amongst.
+        mode (str): How to handle extra keyword arguments.
+
+             * ``'separate'``: Add them as an extra dictionary at the end.
+
+             * ``'strict'``: If there are extra keyword arguments, raise a ``TypeError``. This will only raise if no function with a variable keyword is found or ``varkw == False``.
         varkw (bool | 'first'): Do we want to pass extra arguments as ``**kwargs`` to any function 
             that accepts them? By default (True), they will go to all functions with variable keyword 
             arguments. If ``'first'`` they will only go to the first matching function. 
 
-
     Returns:
         A dict for each function provided, plus one more for unused kwargs if ``overflow == 'separate'``.
+
+
+    Pass arguments to multiple functions!
+
+    .. code-block:: python 
+
+        def func_a(a=None, b=None, c=None):
+            return a, b, c
+
+        def func_b(d=None, e=None, f=None):
+            return d, e, f
+
+        def main(**kw):
+            kw_a, kw_b = starstar.divide(kw, func_a, func_b)
+            func_a(**kw_a)
+            func_b(**kw_b)
+
+        # and it even works for nested functions !
+
+        def func_c(**kw):
+            kw_a, kw_b = starstar.divide(kw, func_a, func_b)
+            func_a(**kw_a)
+            func_b(**kw_b)
+
+        def func_d(g=None, h=None, i=None):
+            return g, h, i
+
+        def main(**kw):
+            kw_c, kw_d = starstar.divide(kw, (func_a, func_b), func_d)
+            func_c(**kw_c)
+            func_d(**kw_d)
     '''
     pss = [_nested_cached_sig_params(f) for f in funcs]
     kws = [{} for _ in pss]
@@ -69,27 +102,60 @@ def _nested_cached_sig_params(f):
 
 
 def signature(f):
-    '''Get a function signature and save it for subsequent calls.'''
-    if isinstance(f, Signature):
+    '''Get a function signature and save it for subsequent calls.
+    Faster than inspect.signature (after the first call.)'''
+    if isinstance(f, _Signature):
         return f
     try:
         return f.__signature__
     except AttributeError:
-        s = f.__signature__ = builtin_signature(f)
+        s = f.__signature__ = _builtin_signature(f)
         return s
 
 
 def traceto(*funcs, keep_varkw=None, filter_hidden=True, kw_only=True):
-    '''Tell a function where its **kwargs are going!
+    '''Tell a function where its ``**kwargs`` are going!
 
     Arguments:
-        *funcs (callable[]): The functions where the keyword arguments go.
-        posargs (callable): 
+        *funcs (*callable[]): The functions where the keyword arguments go.
         keep_varkw (bool): Whether we should keep the varkw arg in the signature.
             If not set, this will be True if any of the passed arguments take 
             variable kwargs.
         filter_hidden (bool): Whether we should filter arguments starting with 
             an underscore. Default True.
+        kw_only (bool): Should we mark the arguments as keyword only?
+
+    Make the example in ``divide`` a bit cleaner!
+
+    .. code-block:: python
+
+        @starstar.traceto(func_a, func_b)
+        def func_c(**kw):
+            kw_a, kw_b = starstar.divide(kw, func_a, func_b)
+            func_a(**kw_a)
+            func_b(**kw_b)
+
+        @starstar.traceto(func_c, func_d)
+        def main(**kw):
+            kw_c, kw_d = starstar.divide(kw, func_c, func_d)
+            func_c(**kw_c)
+            func_d(**kw_d)
+
+    .. note::
+        I hope to have a way of tracing positional arguments to a single function as well. But it adds 
+        more complexity to keyword dividing and I don't think it's worth it until we can flesh out 
+        nice, organized, clearly defined, and intuitive behavior.
+
+        e.g. what to do with this?
+
+        .. code-block:: python
+
+            def func_a(a, b, c): pass
+            def func_b(b, c, d): pass
+            def func_c(*a, **kw):
+                starstar.divide(a, kw, func_a, func_b)
+            func_c(1, 2)  # should func_b get b=2 ???
+            # if not, how can I pass b=2 to func_b ?
     '''
     # get parameters from source functions
     f_params = [_nested_cached_sig_params(f) for f in funcs]
@@ -122,15 +188,15 @@ def traceto(*funcs, keep_varkw=None, filter_hidden=True, kw_only=True):
 
 
 def wraps(func, skip_args=(), skip_n=0):
-    '''``functools.wraps``, except that it merges the signature'''
-    wrap = builtin_wraps(func)
+    '''``functools.wraps``, except that it merges the signature.'''
+    wrap = _builtin_wraps(func)
     def decorator(wrapper):
         sig = _merge_signature(wrapper, func, skip_args, skip_n)
         f = wrap(wrapper)
         f.__signature__ = sig
         return f
     return decorator
-wraps.__doc__ += '\n\nfunctools.wraps:\n' + builtin_wraps.__doc__
+wraps.__doc__ += '\n\n\n' + _builtin_wraps.__doc__
 
 
 def _merge_signature(wrapper, wrapped, skip_args=(), skip_n=0):
@@ -142,7 +208,7 @@ def _merge_signature(wrapper, wrapped, skip_args=(), skip_n=0):
     return sig.replace(parameters=(
         pswposkw + psposkw[skip_n or 0:] + psvarpos + pswkw + pskw + psvarkw))
 
-def _param_groups(sig, skip_args):
+def _param_groups(sig, skip_args=()):
     '''Return the parameters by their kind. Useful for interleaving.'''
     params = tuple(sig.parameters.values())
     if skip_args:
@@ -154,13 +220,20 @@ def _param_groups(sig, skip_args):
         [p for p in params if p.kind == VAR_KW])
 
 
+# def partial(__func, *a_def, **kw_def):
+#     '''``functools.partial``, except that it updates the signature and wrapper.'''
+#     @wraps(__func, skip_n=len(a_def))
+#     def inner(*a, **kw):
+#         return __func(*a_def, *a, **{**kw_def, **kw})
+#     return inner
+
 
 class _Defaults:
     def __init__(self, func, varkw=True, strict=False, frozen=None):
         self.function = func
         self.kw_defaults = {}
 
-        update_wrapper(self, func)
+        _update_wrapper(self, func)
         sig = signature(func)
         ps = sig.parameters
         self.posargs = [k for k in ps if ps[k].kind in (POS_ONLY, POS_KW)]
@@ -218,16 +291,18 @@ def defaults(func, *a, **kw):
     This is a wrapper around ``update_defaults``, that also supports 
     default values for unnamed arguments (**kwargs).
 
-    NOTE: This interface is not stable yet. 
+    NOTE: This interface is not stable yet.
 
-    >>> @starstar.defaults
-    ... def abc(a=5, b=6):
-    ...     return a + b
+    .. code-block:: python 
 
-    >>> assert abc() == 11
-    >>> abc.update(a=10)
-    >>> assert abc() == 16
-    >>> assert abc(2) == 8
+        @starstar.defaults
+        def abc(a=5, b=6):
+            return a + b    
+
+        assert abc() == 11
+        abc.update(a=10)
+        assert abc() == 16
+        assert abc(2) == 8
     '''
     inner = lambda func: _Defaults(func, *a, **kw)
     return inner(func) if callable(func) else inner
@@ -273,3 +348,100 @@ def get_defaults(func):
     '''Get the non-empty default arguments to a function (as a dict).'''
     ps = ((k, p.default) for k, p in signature(func).parameters.items())
     return {k: d for k, d in ps if d is not inspect._empty}
+
+
+def as_args_kwargs(func, values):
+    '''Separate out available positional arguments, based on a function signature.
+    
+    Arguments:
+        func (callable): The function that the arguments will be passed to.
+        values (dict): The parameter values you want to pass to the function.
+            NOTE: This value is not modified.
+
+    Returns: 
+        pos (list): The positional arguments we could pull out.
+        kw (dict): The 
+    '''
+    sig = signature(func)
+    pos = []
+    kw = dict(values)
+    for name, arg in sig.parameters.items():
+        if arg.kind == VAR_POS:
+            pos.extend(kw.pop(arg.name, ()))
+            pos.extend(kw.pop('*', ()))
+            break
+        if arg.kind not in (POS_ONLY, POS_KW) or name not in kw:
+            break
+        pos.append(kw.pop(name))
+    return pos, kw
+
+
+def filter(func, include_varkw=True, **kw):
+    '''Filter kwargs down to only those that appear in the function signature.
+    
+    Arguments:
+        func (callable): The function to filter using.
+        **kw: keyword arguments that you'd like to filter.
+
+    .. code-block:: python
+
+        def func_a(a, b, c): 
+            pass
+
+        assert starstar.filter(func_a, b=2, c=3, x=1, y=2) == {'b': 2, 'c': 3}
+    '''
+    ps = signature(func).parameters
+    if include_varkw and next((True for p in ps.values() if p.kind == VAR_KW), False):
+        return kw
+    ps = {k for k, p in ps.items() if p.kind in KW}
+    return {k: v for k, v in kw.items() if k in ps}
+
+
+def filtered(func):
+    '''A decorator that filters out any extra kwargs passed to a function.
+    See ``starstar.filter`` for more information.
+
+    .. code-block:: python
+
+        @starstar.filtered
+        def func_a(a, b, c): pass
+
+        func_a(1, 2, c=3, x=1, y=2)  # just gonna ignore x and y
+    '''
+    @_builtin_wraps(func)
+    def inner(*a, **kw):
+        return func(*a, **filter(func, **kw))
+    return inner
+
+
+def unmatched_kw(func, *keys, include_varkw=True, reversed=False):
+    '''Returns keys that do not appear in the function signature.
+    
+    Arguments:
+        func (callable): The function to filter using.
+        *keys: keys that you'd like to check.
+        include_varkw (bool): If True and the function accepts **kwargs, it will assume 
+            the function takes any kwargs. Default True.
+        reversed (bool): If True, it will return the parameters from the function that
+            do not appear in the provided keys. Default False.
+
+    .. code-block:: python
+
+        def func_a(a, b, c): 
+            pass
+
+        assert starstar.unmatched_kw(func_a, 'a', 'b', 'z') == {'z'}
+        assert starstar.unmatched_kw(func_a, 'a', 'b', 'z', reversed=True) == {'c'}
+
+        def func_b(a, b, c, **kw): 
+            pass
+
+        assert starstar.unmatched_kw(func_b, 'a', 'b', 'z') == set()
+        assert starstar.unmatched_kw(func_b, 'a', 'b', 'z', reversed=True) == {'c'}
+    '''
+    ps = signature(func).parameters
+    if include_varkw and not reversed and next((True for p in ps.values() if p.kind == VAR_KW), False):
+        return set()
+    ps = {k for k, p in ps.items() if p.kind in KW}
+    ks = set(keys)
+    return ps - ks if reversed else ks - ps
