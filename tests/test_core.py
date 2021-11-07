@@ -39,6 +39,17 @@ def test_divide():
 	assert starstar.divide(kwx, b2, c2, mode='separate') == [{'a': 'a', 'zzz': 'zzz'}, {'e': 'e', 'zzz': 'zzz'}, {}]
 
 
+def test_signature():
+	def b(a=None, b=None, c=None):
+		return 'b', a, b, c
+
+	insig = inspect.signature(b)
+	sssig = starstar.signature(b)
+	assert insig is not sssig
+	assert insig == sssig
+	assert inspect.signature(b) is starstar.signature(b)  # inspect is reading __signature__
+	assert starstar.signature(b) is starstar.signature(b)
+	assert starstar.signature(sssig) is sssig
 
 
 def test_core():
@@ -89,18 +100,45 @@ def test_wraps():
 
 	@starstar.wraps(a)
 	def asdf(q, *a, **kw):
-		pass
+		a(*a, **kw) + q
 
 	assert tuple(inspect.signature(asdf).parameters) == ('q', 'x', 'y', 'aaa', 'z', 'kwaaa')
+
+	@starstar.wraps(a, skip_n=1)
+	def asdf(q, *a, **kw):
+		a(q, *a, **kw)
+	assert tuple(inspect.signature(asdf).parameters) == ('q', 'y', 'aaa', 'z', 'kwaaa')
+
+	@starstar.wraps(a, skip_args='x')
+	def asdf(q, *a, **kw):
+		a(q, *a, **kw)
+	assert tuple(inspect.signature(asdf).parameters) == ('q', 'y', 'aaa', 'z', 'kwaaa')
 
 
 def test_defaults():
 	@starstar.defaults
+	def a():
+		pass
+
+	@starstar.defaults
+	def a(x):
+		return x
+	with pytest.raises(TypeError):
+		a()
+	with pytest.raises(TypeError):
+		a.update(y=10)
+	# a.update(x=1)  # FIXME: TypeError: Unexpected arguments: {'x'}
+	# assert a() == 1
+
+	@starstar.defaults
 	def a(x, y=6, *args, z=7, **kw):
 		return x, y, z, kw
 
+	print(a)
+
 	assert a(5) == (5, 6, 7, {})
 	assert a(10, 11, z=12) == (10, 11, 12, {})
+	assert a.get() == {'y': 6, 'z': 7}
 
 	assert tuple(inspect.signature(a).parameters) == ('x', 'y', 'args', 'z', 'kw')
 	assert tuple(p.default for p in inspect.signature(a).parameters.values()) == (
@@ -125,11 +163,34 @@ def test_defaults():
 		inspect._empty, 6, inspect._empty, 7, inspect._empty)
 
 
+def test_as_akw():
+	def func_a(a, b, c, *x, d=0):
+            return a, b, c, d
+
+	a, kw = starstar.as_args_kwargs(func_a, {'a': 1, 'b': 2, 'c': 3, 'd': 4})
+	assert a == [1, 2, 3]
+	assert kw == {'d': 4}
+
+	a, kw = starstar.as_args_kwargs(func_a, {'a': 1, 'b': 2, 'c': 3, 'x': [6,6,6], '*': [7,7,7], 'd': 4})
+	assert a == [1, 2, 3, 6, 6, 6, 7, 7, 7]
+	assert kw == {'d': 4}
+
+	def func_a(a, b, c, *, d=0): 
+		return a, b, c, d
+
+	a, kw = starstar.as_args_kwargs(func_a, {'a': 1, 'b': 2, 'c': 3, 'd': 4})
+	assert a == [1, 2, 3]
+	assert kw == {'d': 4}
+
+
 def test_kw_filtering():
 	def func_a(a, b, c): 
 		return a+b+c
     
-	assert starstar.filter(func_a, b=2, c=3, x=1, y=2) == {'b': 2, 'c': 3}
+	kw = dict(b=2, c=3, x=1, y=2)
+	assert starstar.filter_kw(func_a, kw) == {'b': 2, 'c': 3}
+
+	assert starstar.filter_kw(lambda b, **kw: kw, kw) == kw
 
 	func_a1 = starstar.filtered(func_a)
 	func_a1(1, 2, c=3, x=1, y=2)  # just gonna ignore x and y
@@ -142,3 +203,19 @@ def test_kw_filtering():
 	assert starstar.unmatched_kw(func_b, 'a', 'b', 'z') == set()
 	assert starstar.unmatched_kw(func_b, 'a', 'b', 'z', reversed=True) == {'c'}
 
+
+def test_get_args():
+	def func(a, b, *xs, c):
+		...
+
+	assert [p.name for p in starstar.get_args(func)] == ['a', 'b', 'xs', 'c']
+	assert [p.name for p in starstar.get_args(func, starstar.POS)] == ['a', 'b']
+	assert [p.name for p in starstar.get_args(func, starstar.KW)] == ['a', 'b', 'c']
+	assert [p.name for p in starstar.get_args(func, starstar.KW_ONLY)] == ['c']
+	assert [p.name for p in starstar.get_args(func, ignore=starstar.VAR)] == ['a', 'b', 'c']
+
+
+def test_kw2id():
+	kw = {'name': 'asdf', 'count': 10, 'enabled': True}
+	assert starstar.kw2id(kw, 'name', 'count', 'enabled', 'xxx') == 'name_asdf-count_10-enabled_True'
+	assert starstar.kw2id(kw, 'name', 'xxx', 'count', filter=False) == 'name_asdf-xxx_-count_10'
