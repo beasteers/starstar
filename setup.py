@@ -12,7 +12,7 @@ setuptools.setup(
     name=NAME,
     version=version,
     description='Keyword argument tracing !!',
-    long_description=open('README.md').read().strip(),
+    long_description=open('README.md', encoding='utf-8').read().strip(),
     long_description_content_type='text/markdown',
     author='Bea Steers',
     author_email='bea.steers@gmail.com',
