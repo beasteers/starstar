@@ -1,5 +1,9 @@
 # starstar  ✨ ✨
 
+[![PyPI](https://img.shields.io/pypi/v/starstar.svg)](https://pypi.python.org/pypi/starstar)
+[![Docs](https://readthedocs.org/projects/docs/badge/?version=latest)](#)
+[![License](https://img.shields.io/pypi/l/starstar.svg)](https://github.com/beasteers/starstar/blob/main/LICENSE.md)
+
 Finally! Variable keyword tracing in Python. 
 
 Because this makes me sad:
