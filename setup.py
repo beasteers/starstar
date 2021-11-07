@@ -20,5 +20,8 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     # entry_points={'console_scripts': ['{name}={name}:main'.format(name=NAME)]},
     install_requires=[],
+    extras_require={
+        'test': ['pytest', 'pytest-cov']
+    },
     license='MIT License',
     keywords='keyword kwargs kw star function arguments signature wrap trace')
