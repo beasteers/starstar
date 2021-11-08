@@ -201,3 +201,53 @@ Your code:
         cfg = load_config()
 
         ...
+
+
+Example X: You want to nest another function's signature as a dict parameter. (like seaborn)
+----------------------------------------------------------------------------------------------
+
+Showcasing: :func:`starstar.nestdoc`
+
+Scenario: You have keywords that you want to pass to multiple places, but you want to take a simpler approach
+where the function accepts a dictionary for each function ``func_a_kw={...}`` which you can then pass to each 
+nested function. However, you still want to be able to provide documentation for them in the parent docstring.
+
+A solution: Pull the parameters from the children docstrings and splice them into the parent docstring.
+
+
+.. code-block:: python
+    
+    def funcA(a, b):
+        """Another function
+        
+        Arguments:
+            a (int): a from funcA
+            b (int): b from funcA
+        """
+
+    def funcB(b, c):
+        """Anotherrrr function
+        
+        Arguments:
+            b (int): b from funcB
+            c (int): c from funcB
+        """
+
+    @starstar.nestdoc(funcA, b_kw=funcB)
+    def funcC(funcA_kw=None, funcB_kw=None, **kw):
+        """Hello"""
+
+    print(funcC.__doc__)
+    """
+    Hello
+
+    Args:
+        funcA_kw (dict?): Keyword arguments for :func:`funcA`.
+            
+                - a (int): a from funcA
+                - b (int): b from funcA
+        b_kw (dict?): Keyword arguments for :func:`funcB`.
+            
+                - b (int): b from funcB
+                - c (int): c from funcB
+    """

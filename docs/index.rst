@@ -117,6 +117,7 @@ Installation
    getting_args
    defaults
    utils
+   docs
 
 Contributions
 =================
