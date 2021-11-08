@@ -200,10 +200,7 @@ with open(config_file, 'r') as f:
 func_x.update(**(config.get('func_x') or {}))
 ```
 
-## Wishlist
- - merging docstrings? Idk might be too ambitious. 
-   - We would just need a reliable docstring parser and it would probably be something that we'd want enabled lazily
-   - merge seaborn-style kwarg routing in docstrings
+## For the Future
  - tracing pos args? After some thought - this seems troublesome because I'm not sure how we'd deal with name conflicts between kwargs.
  - `traceto` allow skipping?
  - have a more concrete plan around keyword name collisions.
