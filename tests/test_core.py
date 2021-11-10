@@ -49,7 +49,7 @@ def test_signature():
     assert insig == sssig
     assert inspect.signature(b) is starstar.signature(b)  # inspect is reading __signature__
     assert starstar.signature(b) is starstar.signature(b)
-    assert starstar.signature(sssig) is sssig
+    # assert starstar.signature(sssig) is sssig
 
 
 def test_core():

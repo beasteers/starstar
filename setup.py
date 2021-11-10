@@ -21,7 +21,8 @@ setuptools.setup(
     # entry_points={'console_scripts': ['{name}={name}:main'.format(name=NAME)]},
     install_requires=['docstring_parser'],
     extras_require={
-        'test': ['pytest', 'pytest-cov']
+        'test': ['pytest', 'pytest-cov'],
+        'doc': ['sphinx', 'sphinx-execute-code']
     },
     license='MIT License',
     keywords='keyword kwargs kw star function arguments signature wrap trace')

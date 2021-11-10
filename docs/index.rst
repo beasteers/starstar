@@ -118,6 +118,13 @@ Installation
    defaults
    utils
    docs
+   unpack
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Additional
+
+   performance
 
 Contributions
 =================

@@ -12,7 +12,11 @@
 #
 # import os
 # import sys
-# sys.path.insert(0, os.path.abspath('.'))
+
+
+import sys, os
+sys.path.insert(0, os.path.abspath('.'))
+sys.path.insert(0, os.path.abspath(__file__ + '/../_ext'))
 
 
 # -- Project information -----------------------------------------------------
@@ -25,7 +29,6 @@ author = 'Bea Steers'
 import starstar
 release = starstar.__version__
 
-
 # -- General configuration ---------------------------------------------------
 
 # Add any Sphinx extension module names here, as strings. They can be
@@ -37,7 +40,12 @@ extensions = [
     'sphinx.ext.coverage',
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
+    # 'sphinx.ext.ipython_directive',
+    'sphinx_execute_code',
+    'exec_code',
 ]
+
+
 
 pygments_style = 'manni'  # 'arduino', 'material', 'inkpot'
 

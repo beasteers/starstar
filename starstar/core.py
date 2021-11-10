@@ -1,5 +1,4 @@
 import inspect
-import copy
 from inspect import signature as _builtin_signature, Signature as _Signature
 from functools import wraps as _builtin_wraps, update_wrapper as _update_wrapper
 import docstring_parser as dcp
@@ -152,19 +151,17 @@ def divide(kw, *funcs, mode='strict', varkw=True):
 
 def _nested_cached_sig_params(f):
     '''Get and merge signature parameters for potentially multiple functions.'''
-    return {
-        k: p for fi in _nested(f)
-        for k, p in signature(fi).parameters.items()}
-    # if isinstance(f, (list, tuple)):
-    #     return {k: v for fi in f for k, v in _nested_cached_sig_params(fi).items()}
     # return signature(f).parameters
+    # return {k: p for fi in _nested(f) for k, p in signature(fi).parameters.items()}
+    if isinstance(f, (list, tuple)):
+        return {k: v for fi in f for k, v in signature(fi).parameters.items()}
+    return signature(f).parameters
 
-def _nested(xs):
-    if isinstance(xs, (set, list, tuple)):
-        for x in xs:
-            yield from _nested(x)
-        return
-    yield xs
+def _nested(xs, types=(tuple, list)):
+    if isinstance(xs, types):
+        yield from (xi for x in xs for xi in _nested(x))
+    else:
+        yield xs
 
 
 def signature(f):
@@ -173,8 +170,6 @@ def signature(f):
     Faster than inspect.signature (after the first call) because it 
     is cached using the standard ``f.__signature__`` attribute.
     '''
-    if isinstance(f, _Signature):
-        return f
     try:
         return f.__signature__
     except AttributeError:
