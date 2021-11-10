@@ -29,7 +29,7 @@ _STAR = _SYM('star')
 
 _FRAME_CACHE = {}
 def assignedto(up=0, cache=True):
-    '''Parse the assignment of a line of code.
+    '''Parse the assignment of a line of code and get the names of the assignment variables.
     
     Arguments:
         up (int): How many frames should we go up? If you wrap this function, it's recommended
@@ -40,6 +40,14 @@ def assignedto(up=0, cache=True):
             the frame filename and line number. I realize this could break in some (?) situations
             so you have the ability to disable as needed. Keep in mind, when run repeatedly
             over time, it's about 26x slower than using caching (tested using 100k iters).
+
+    Returns:
+        (str, tuple): This will assign the names of the variables used for the assignment.
+        
+    .. note::
+
+        This is less useful used on its own, and is more useful when used inside of wrapper 
+        functions. See :func:`unpack` for a real example.
 
     .. code-block:: python
 
@@ -89,7 +97,6 @@ def assignedto(up=0, cache=True):
         c = frame.f_code
         i = c.co_filename, frame.f_lineno
         if i[0] and i in _FRAME_CACHE:
-            # print('found cache', i, _FRAME_CACHE)
             return _FRAME_CACHE[i]
     lines, lnum = inspect.findsource(frame)
 
@@ -97,10 +104,12 @@ def assignedto(up=0, cache=True):
     statement = ''
     ilines = iter(lines[lnum:frame.f_lineno][::-1])
     for l in ilines:
+        # find the last part of the assignment line (i.e. `) = assignedto()`)
         m = re.match(r'(.+[^!<>])=\s*\(*(?:[\w]+\.)*' + func_name + r'\(.*', l)
         if m:
             statement = m.group(1)
             break
+        # find an empty assignment (i.e. `assignedto()`)
         m = re.match(r'\s*\(*(?:[\w]+\.)*' + func_name + r'\(.*', l)
         if m:
             return None
@@ -117,11 +126,9 @@ def assignedto(up=0, cache=True):
             if not open_paras:
                 break
 
-    # print(f'{statement.strip()} = _')
     keys = _literal_eval(f'{statement.strip()} = _')
     if cache:
         _FRAME_CACHE[i] = keys
-    # print(keys)
     return keys
 
 
