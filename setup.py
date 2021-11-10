@@ -22,7 +22,7 @@ setuptools.setup(
     install_requires=['docstring_parser'],
     extras_require={
         'test': ['pytest', 'pytest-cov'],
-        'doc': ['sphinx', 'sphinx-execute-code']
+        'doc': ['sphinx']
     },
     license='MIT License',
     keywords='keyword kwargs kw star function arguments signature wrap trace')

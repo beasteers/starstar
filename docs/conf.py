@@ -41,7 +41,7 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
     # 'sphinx.ext.ipython_directive',
-    'sphinx_execute_code',
+    # 'sphinx_execute_code',
     'exec_code',
 ]
 
