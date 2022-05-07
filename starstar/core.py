@@ -67,7 +67,7 @@ def divide(kw, *funcs, mode='strict', varkw=True):
             no function will get variable keyword args.
 
     Returns:
-        A dict for each function provided, plus one more for unused kwargs if ``overflow == 'separate'``.
+        A dict for each function provided, plus one more for unused kwargs if ``mode == 'separate'``.
 
     Raises:
         TypeError: if ``mode='strict'`` (default) and it receives arguments that don't appear in any function's signature. Does not apply if any function takes ``**kw``.
@@ -164,20 +164,30 @@ def _nested(xs, types=(tuple, list)):
         yield xs
 
 
-def signature(f):
+def signature(f, required=True):
     '''Get a function signature.
     
     Faster than inspect.signature (after the first call) because it 
     is cached using the standard ``f.__signature__`` attribute.
     '''
     try:
-        return f.__signature__
-    except AttributeError:
-        s = f.__signature__ = _builtin_signature(f)
-        return s
+        try:
+            return f.__signature__
+        except AttributeError:
+            s = _builtin_signature(f)
+            try:
+                f.__signature__ = s
+            except AttributeError:
+                try:
+                    f.__dict__['__signature__'] = s
+                except AttributeError:
+                    pass
+            return s
+    except ValueError:
+        if required:
+            raise
 
-
-def traceto(*funcs, keep_varkw=None, filter_hidden=True, doc=True):  # , kw_only=True
+def traceto(*funcs, keep_varkw=None, filter_hidden=True, doc=False):  # , kw_only=True
     '''Tell a function where its ``**kwargs`` are going!
 
     This is similar to ``functools.wraps``, except that it merges the signatures of multiple functions
@@ -191,7 +201,7 @@ def traceto(*funcs, keep_varkw=None, filter_hidden=True, doc=True):  # , kw_only
         filter_hidden (bool): Whether we should filter out arguments starting with 
             an underscore. Default True. This is often used for private arguments
             for example in the case of recursive functions that pass objects internally.
-        doc (bool): Whether to merge the docstrings.
+        doc (bool): Whether to merge the docstrings. Defaults to False.
 
     By having ``func_c`` trace its ``**kwargs`` signature, ``main`` can say that it's passing
     its arguments to ``func_c`` and it will be able to see the parameters of ``func_a`` & ``func_b``.
@@ -268,7 +278,53 @@ def traceto(*funcs, keep_varkw=None, filter_hidden=True, doc=True):  # , kw_only
 
 
 def wraps(func, skip_args=(), skip_n=0):
-    '''``functools.wraps``, except that it merges the signature.'''
+    '''``functools.wraps``, except that it merges the signature.
+
+    .. note::
+
+        ``functools.wraps`` doesn't do any function introspection. This means
+        that if the wrapper function adds any arguments to the function 
+        signature, these arguments won't be documented.
+    
+    If you're not familiar with ``functools.wraps``, it is a decorator
+    that renames a wrapper function and its signature to look like the 
+    function that it's wrapping.
+
+    .. code-block:: python
+
+        # without wrapping
+
+        def print_output(func):
+            def inner(*a, print_output=True, **kw):
+                output = func(*a, **kw)
+                if print_output:
+                    print(output)
+                return output
+            return inner
+
+        @print_output
+        def something(a, b):
+            return a+b
+
+        assert something.__name__ == 'inner'
+
+        # with wrapping
+
+        def print_output(func):
+            @starstar.wraps(func)
+            def inner(*a, print_output=True, **kw):
+                output = func(*a, **kw)
+                if print_output:
+                    print(output)
+                return output
+            return inner
+
+        @print_output
+        def something(a, b):
+            return a+b
+
+        assert something.__name__ == 'something'
+    '''
     wrap = _builtin_wraps(func)
     def decorator(wrapper):
         sig = _merge_signature(wrapper, func, skip_args, skip_n)
@@ -276,7 +332,7 @@ def wraps(func, skip_args=(), skip_n=0):
         f.__signature__ = sig
         return f
     return decorator
-wraps.__doc__ += '\n\n\n' + _builtin_wraps.__doc__
+# wraps.__doc__ += '\n\n\n' + _builtin_wraps.__doc__
 
 
 def _merge_signature(wrapper, wrapped, skip_args=(), skip_n=0):
@@ -560,7 +616,44 @@ def get_args(func, match=(), ignore=()):
 #     return [[p for k, p in ps if p.kind in m] for m in matches]
 
 
-def filter_kw(func, kw, include_varkw=True):
+def required_args(func):
+    '''Get the required arguments for a function.'''
+    return [
+        p for p in signature(func).parameters.values() 
+        if p.default is inspect._empty and p.kind not in VAR
+    ]
+
+
+# def valid_args(f, *a, **kw):
+#     s = signature(f)
+#     ps = list(s.parameters.values())
+#     if not ps:
+#         return not (a or kw)
+#     varpos = next((i for i, p in enumerate(ps) if p.kind == VAR_POS), None)
+#     if varpos:
+#         pass
+
+#     i = 0
+#     for i, a in enumerate(a):
+#         if i >= len(ps):
+#             return False
+#         p = ps[i]
+#         if p.kind == VAR_POS:
+#             i += 1
+#             break
+#     # if ps[i].kind == :
+#     #     pass
+    
+    
+
+#     ppos = get_args(f, POS)
+
+#     pkw = get_args(f, KW_ONLY)
+#     return True
+
+
+
+def filter_kw(func, kw, skip_n=0, include_varkw=True):
     '''Filter ``**kwargs`` down to only those that appear in the function signature.
     
     Arguments:
@@ -578,10 +671,12 @@ def filter_kw(func, kw, include_varkw=True):
         args = {'b': 2, 'c': 3, 'x': 1, 'y': 2}
         assert starstar.filter_kw(func_a, args) == {'b': 2, 'c': 3}
     '''
-    ps = signature(func).parameters
-    if include_varkw and next((True for p in ps.values() if p.kind == VAR_KW), False):
+    ps = list(signature(func).parameters.values())[skip_n or 0:]
+    if not ps:
+        return {}
+    if include_varkw and next((True for p in ps if p.kind == VAR_KW), False):
         return kw
-    ps = {k for k, p in ps.items() if p.kind in KW}
+    ps = {p.name for p in ps if p.kind in KW}
     return {k: v for k, v in kw.items() if k in ps}
 
 
@@ -636,6 +731,42 @@ def unmatched_kw(func, *keys, include_varkw=True, reversed=False):
     ps = {k for k, p in ps.items() if p.kind in KW}
     ks = set(keys)
     return ps - ks if reversed else ks - ps
+
+
+def popkw(func, kw, skip_n=0, skip_args=None):
+    '''Pop any keywords that belong to this function.
+
+    This is very similar to :func:`divide`, except that it's meant for 
+    less-structured scenarios where you want to pull arguments one 
+    function at a time. NOTE: This only handles named arguments and 
+    does not pop everything if a function takes varkw.
+    
+    Arguments:
+        func (callable): The function to pull kwargs for.
+        kw (dict): The ``**kwargs`` dictionary.
+        skip_n (int): This lets you ignore the first ``n`` arguments.
+        skip_args (list, set, tuple): This lets you skip arguments by name.
+
+    .. code-block:: python
+
+        def somefunc(x, do_something=False): ...
+
+        kw = {'asdf': 10, 'do_something': True}
+
+        # separate out the kwargs for `somefunc`.
+        # use `skip_n=1` so that we don't pop out `x` (if it exists, since we specify that later)
+        somefunc_kw = starstar.popkw(somefunc, kw, skip_n=1)
+        assert kw == {'asdf': 10}
+        assert somefunc_kw == {'do_something': True}
+
+        somefunc(100, **somefunc_kw)
+        otherfunc(**kw)
+    '''
+    skip_args = skip_args or set()
+    return {
+        k: kw.pop(k) for k in (p.name for p in get_args(func, NAMED)[skip_n:]) 
+        if k in kw and k not in skip_args}
+
 
 
 def kw2id(kw, *keys, key=True, sep='-', key_sep='_', filter=True, missing='', format=str):

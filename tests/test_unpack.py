@@ -65,6 +65,12 @@ def test_unpack_multiline():
         {}))
 
 def test_assignto():
+    (a, b, c) = starstar.assignedto()
+    assert (a, b, c) == ('a', 'b', 'c')
+    a, b, c = d = starstar.assignedto()
+    assert (a, b, c) == ('a', 'b', 'c')
+    assert d == ('a', 'b', 'c')
+
     (
         a, 
         b, 

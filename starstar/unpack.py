@@ -73,22 +73,27 @@ def assignedto(up=0, cache=True):
 
         x, y, z = asdf_flipped()
         assert (x, y, z) == ('z', 'y', 'x')
-    '''
-#     frame = sys._getframe(up+1)
-#     if cache:
-#         # i = id(frame)  # FIXME: Is this valid? From small tests, it is. Is there a more reliable id?
-#         c = frame.f_code
-#         i = c.co_filename, c.co_firstlineno
-#         if i in _FRAME_CACHE:
-#             return _FRAME_CACHE[i]
-#     lines, lnum = inspect.findsource(frame)
-#     line = lines[frame.f_lineno-1]
-#     keys = _literal_eval(line.strip())
-#     if cache:
-#         _FRAME_CACHE[i] = keys
-#     return keys
 
-# def assignedto(up=0, cache=True):
+    Use it to define constants:
+
+    .. code-block:: python
+
+        OPEN, CLOSE = assignedto()
+
+        something = 'OPEN'
+        if something == OPEN: ...
+
+    Or internal symbols:
+
+    .. code-block:: python
+
+        def tokens(_up=0):
+            keys = assignedto(_up+1)
+            return deep_apply(keys, '||| token: {} |||'.format)
+        
+        a, b = tokens()
+        assert (a, b) == ('||| token: a |||', '||| token: b |||')
+    '''
     frame = sys._getframe(up)
     func_name = frame.f_code.co_name
     frame = frame.f_back
@@ -102,15 +107,17 @@ def assignedto(up=0, cache=True):
 
     # find the assignment ... = xxx.unpack
     statement = ''
+    func_pattern = r'\s*\(*(?:[\w]+\.)*' + func_name + r'\(.*'
+    assigned_func_pattern = r'(.+[^!<>])=' + func_pattern
     ilines = iter(lines[lnum:frame.f_lineno][::-1])
     for l in ilines:
         # find the last part of the assignment line (i.e. `) = assignedto()`)
-        m = re.match(r'(.+[^!<>])=\s*\(*(?:[\w]+\.)*' + func_name + r'\(.*', l)
+        m = re.match(assigned_func_pattern, l)
         if m:
             statement = m.group(1)
             break
         # find an empty assignment (i.e. `assignedto()`)
-        m = re.match(r'\s*\(*(?:[\w]+\.)*' + func_name + r'\(.*', l)
+        m = re.match(func_pattern, l)
         if m:
             return None
 
@@ -318,7 +325,7 @@ def _literal_eval(value):
     assign = root.body[0]
     if not isinstance(assign, ast.Assign):
         return None
-    root = assign.targets[-1]
+    root = assign.targets[0]
     if isinstance(root, (ast.List, ast.Tuple)):
         # replace all variables with strings
         for node in ast.walk(root):
@@ -355,7 +362,11 @@ def _replacement(node, prefix=None):
 
 
 
-
+def deep_apply(x, func, *a, types=(list, tuple), **kw):
+    '''Apply a function recursively, maintaining the input type.'''
+    if isinstance(x, types):
+        return type(x)(deep_apply(xi, func, *a, types, **kw) for xi in x)
+    return func(x, *a, **kw)
 
 
 

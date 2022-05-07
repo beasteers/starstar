@@ -1,3 +1,5 @@
+.. _unpack
+
 Javascript-esque Unpacking
 ===============================
 

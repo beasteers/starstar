@@ -119,12 +119,15 @@ Installation
    utils
    docs
    unpack
+   .. cli
+   docstring
 
 .. toctree::
    :maxdepth: 1
    :caption: Additional
 
    performance
+   changes
 
 Contributions
 =================
