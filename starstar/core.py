@@ -1,4 +1,6 @@
+from __future__ import annotations
 import inspect
+from typing import cast as tcast
 from inspect import signature as _builtin_signature, Signature as _Signature
 from functools import wraps as _builtin_wraps, update_wrapper as _update_wrapper
 import docstring_parser as dcp
@@ -164,7 +166,7 @@ def _nested(xs, types=(tuple, list)):
         yield xs
 
 
-def signature(f, required=True):
+def signature(f, required=True) -> _Signature:  # type: ignore
     '''Get a function signature.
     
     Faster than inspect.signature (after the first call) because it 
@@ -174,7 +176,7 @@ def signature(f, required=True):
         try:
             return f.__signature__
         except AttributeError:
-            s = _builtin_signature(f)
+            s = tcast(_Signature, _builtin_signature(f))
             try:
                 f.__signature__ = s
             except AttributeError:
@@ -369,6 +371,7 @@ class _Defaults:
     def __init__(self, func, varkw=True, strict=False, frozen=None):
         self.function = func
         self.kw_defaults = {}
+        self.__name__ = getattr(func, '__name__', None)
 
         _update_wrapper(self, func)
         sig = signature(func)
@@ -873,7 +876,7 @@ def _mergedoc(doc, funcs, ps=None, style=None):
     funcs = list(_nested(funcs))  # unravel nested functions
 
     if ps is None:
-        ps = [p for f in funcs for p in signature(f)]
+        ps = [p for f in funcs for p in signature(f).parameters.values()]
 
     parsed = dcp.parse(doc)
     docstrs = [dcp.parse(f.__doc__ or '') for f in funcs]

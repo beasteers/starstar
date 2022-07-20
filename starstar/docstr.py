@@ -58,6 +58,7 @@ you can edit the content of the block and the rest of it will be preserved.
     alksdfj
     '''
 """
+from __future__ import annotations
 import re
 # import copy
 import inspect
@@ -79,8 +80,13 @@ class Block:
         block.body = ['blorg', 'blagh']
         assert str(block) == '\n\n\n    blorg\n    blagh\n\n\n\n'
     '''
+    leading: list[Block|str]
+    trailing: list[Block|str]
+    _body: list[Block|str]
+
     INDENT_WIDTH = 4
     def __init__(self, text, title=None, name=None, kind=None, cleandoc=False, end_newline=True, raw=False, indent=0):
+        self._body = []
         if cleandoc:  # NOTE: this fails if Block is given a list
             text = inspect.cleandoc(text)
         lines = aslines(text, end_newline=end_newline)
@@ -137,7 +143,6 @@ class Block:
             self.leading + body + self.trailing)
 
     # lets you set body with a string.
-    _body = None
     @property
     def body(self): return self._body
     @body.setter
@@ -173,7 +178,7 @@ class Block:
         '''Return the first child matching a query. See ``children`` for arguments.'''
         return next(iter(self.children(kind, name)), None)
 
-    def __getitem__(self, k):
+    def __getitem__(self, k) -> Block|str|list[Block|str]|None:
         '''Return a direct child matching a name or index. Basically, you can 
         index like a list or a dict.
         '''
@@ -237,7 +242,7 @@ class Param(Block):
     '''
     _keys = ()
     _format=None
-    pattern=None
+    pattern: re.Pattern|str = ''
     name = dtype = desc = None
     changed = False
     def __init__(self, text, can_be_unnamed=False, block_kind=None, **kw):
@@ -250,7 +255,7 @@ class Param(Block):
         super().__init__(text + '\n' if not text.endswith('\n') else text, kind='PARAM', **kw)        
 
         # parse out the data
-        m = re.match(p, ''.join(self.body) + '\n')
+        m = re.match(p, ''.join(map(str, self.body)) + '\n')
         self.__data = self.prepare(**(m.groupdict() if m else {}))
         self.__dict__.update(self.__data)
         self.changed = False
@@ -260,6 +265,9 @@ class Param(Block):
             self.__data[k] = v
             self.changed = True
         super().__setattr__(k, v)
+
+    def get(self, k):
+        return getattr(self, k, None)
 
     def update(self, **kw):  # update multiple
         if set(kw) - set(self._keys):
@@ -272,6 +280,9 @@ class Param(Block):
             self.body = self.format(**self.__data).splitlines(keepends=True)
             self.changed = False
         return super()._format_body(body, *a, **kw)
+
+    def format(self, **kw):
+        raise NotImplementedError
 
     def replace(self, **kw):
         return self.__class__(
@@ -297,6 +308,9 @@ class Docstring(Block):
         YIELD=["Yields"])
     SUPPORTS_PARAMS = ('ARGS', 'ATTRS')
     SUPPORTS_UNNAMED_PARAMS = ('RETURN', 'YIELD', 'EXCEPT')
+
+    header_format = r'^({}):? *\n'
+    class Param(Param): pass
 
     def __init__(self, doc=None, name=None):
         if callable(doc):
@@ -459,7 +473,7 @@ def _break_sections(doc, pattern):
     matches = list(re.finditer(pattern, doc, flags=re.M))
 
     yield '', doc[:matches[0].start() if matches else None]
-    for m1, m2 in zip(matches, matches[1:] + [None]):
+    for m1, m2 in zip(matches, matches[1:] + [None]):  # type: ignore
         # select the title of the heading
         title = doc[m1.start():m1.end()]
         body = doc[m1.end():m2 and m2.start()]
@@ -469,7 +483,8 @@ def _section_partition(doc, pattern, get_kind=None, break_unnamed_sections=None)
     sections = []
     for title, body in _break_sections(doc, pattern):
         # pull info from title
-        name = re.match(pattern, title).group(1) if title else None
+        match = re.match(pattern, title) if title else None
+        name = match.group(1) if match else None
         kind = get_kind(name) if get_kind else None
         body, *others = break_unnamed_sections(body) if break_unnamed_sections else [body]
 
@@ -561,12 +576,12 @@ def nocase(a, b):
     '''Compare two values case-insensitively.'''
     return (a.lower() if isinstance(a, str) else a) == (b.lower() if isinstance(b, str) else b)
 
-def aslines(text, end_newline=True):
+def aslines(text, end_newline=True) -> list[Block|str]:
     '''Convert a block of text to lines, preserving new lines.'''
     lines = text.splitlines(keepends=True) if isinstance(text, str) else text or []
     if end_newline and lines and isinstance(lines[-1], str) and not lines[-1].endswith('\n'):
         lines[-1] = lines[-1] + '\n'
-    return lines
+    return lines  # type: ignore
 
 
 # def separate_whitespace(lines):
@@ -611,6 +626,11 @@ STYLES = {
     'google': Google(),
     'numpy': Numpy(),
 }
+
+def parse(func, style=None, **kw):
+    style = [style] if isinstance(style, str) else style or list(STYLES)
+    for s in style:
+        return STYLES[s](func, **kw).parse()
 
 
 # def _resub_groups(pattern, body, *a, **kw):  # FIXME: how to handle missing ???
