@@ -59,16 +59,17 @@ you can edit the content of the block and the rest of it will be preserved.
     '''
 """
 from __future__ import annotations
+from typing import List, Union, cast, overload, TypeVar, Generic
 import re
 # import copy
 import inspect
-import starstar as ss
 
 # https://realpython.com/documenting-python-code/#docstring-types
 
+BodyType = TypeVar('BodyType', bound='Block|str')
 
 
-class Block:
+class BaseBlock(Generic[BodyType]):
     '''This represents a block of text. This will separate out any leading or trailing blank lines
     as well as factor out the common indentation. This lets you safely modify the content of the
     block while preserving the surrounding whitespace. It also can use an optional section title
@@ -80,9 +81,9 @@ class Block:
         block.body = ['blorg', 'blagh']
         assert str(block) == '\n\n\n    blorg\n    blagh\n\n\n\n'
     '''
-    leading: list[Block|str]
-    trailing: list[Block|str]
-    _body: list[Block|str]
+    leading: list[str]
+    trailing: list[str]
+    _body: list[BodyType]
 
     INDENT_WIDTH = 4
     def __init__(self, text, title=None, name=None, kind=None, cleandoc=False, end_newline=True, raw=False, indent=0):
@@ -90,8 +91,8 @@ class Block:
         if cleandoc:  # NOTE: this fails if Block is given a list
             text = inspect.cleandoc(text)
         lines = aslines(text, end_newline=end_newline)
-        leading, body, trailing, min_indent = ([],lines,[],None) if raw else separate_whitespace(lines)
-        self.leading, self.body, self.trailing = leading, body, trailing
+        self.leading, self.body, self.trailing, min_indent = (
+            ([],lines,[],None) if raw else separate_whitespace(lines))
 
         # get the title/body indent offset
         min_indent = min_indent or 0
@@ -117,7 +118,10 @@ class Block:
         '''Checks if the block has any non-whitespace content. 
         Analogous to ``bool('    '.strip())``  
         '''
-        return self.title or any(l.strip() for l in self.leading + self.body + self.trailing)
+        return bool(
+            self.title or 
+            any(l.strip() if isinstance(l, str) else l for l in self.body) or 
+            any(l.strip() for l in self.leading + self.trailing))
 
     def __eq__(self, other):
         '''Checks if the string representations are the same. Whitespace does count.'''
@@ -131,23 +135,25 @@ class Block:
     #     '''Format the block. Equivalent to ``str(block)``.'''
     #     return self._format_body(mode=mode)
 
-    def _format_body(self, body=None, mode='s'):
-        body = self.body if body is None else aslines(body)
+    def _format_body(self, body=None, mode='s'):  # type: ignore
+        body = self.body if body is None else aslines(body, end_newline=True)
         if mode == 'r':  # allow drawing boxes around children
             body = [repr(l) if isinstance(l, Block) else l for l in body]
         # indent the body and make sure it ends with a new line
         body = [indent(str(l), self.min_indent + self.child_indent) for l in body]
+        title = [indent(self.title, self.min_indent)] if self.title else []
         # join everything together
-        return ''.join(
-            ([indent(self.title, self.min_indent)] if self.title else []) + 
-            self.leading + body + self.trailing)
+        return ''.join(map(str, title + self.leading + body + self.trailing))
 
     # lets you set body with a string.
     @property
     def body(self): return self._body
     @body.setter
-    def body(self, value): self._body = aslines(value)
+    def body(self, value): 
+        self._body = self._prepare_body_lines(aslines(value, end_newline=True))
 
+    def _prepare_body_lines(self, lines: list[str]) -> list[BodyType]:
+        raise NotImplementedError
 
     def children(self, kind=..., name=..., include_self=False):
         '''Return children recursively matching some query.
@@ -168,57 +174,72 @@ class Block:
             sections without having to check for each possible variation. ``name`` is there 
             when you want to search with the actual name of the section.
         '''
-        if include_self and (kind != ... or self.kind == kind.upper()) and (name != ... or (self.name or '').lower() == name.lower()):
+        if include_self and (kind == ... or self.kind == kind.upper()) and (name == ... or (self.name or '').lower() == name.lower()):
             yield self
         for b in self.body:
-            if isinstance(b, Block):
+            if isinstance(b, BaseBlock):
                 yield from b.children(kind, name, include_self=True)
 
     def first(self, kind=..., name=...):
         '''Return the first child matching a query. See ``children`` for arguments.'''
         return next(iter(self.children(kind, name)), None)
 
-    def __getitem__(self, k) -> Block|str|list[Block|str]|None:
+    @overload
+    def __getitem__(self, k: str|int) -> BodyType: ...
+    @overload
+    def __getitem__(self, k: slice) -> list[BodyType]: ...
+    
+    def __getitem__(self, k: int|slice|str) -> BodyType|list[BodyType]:
         '''Return a direct child matching a name or index. Basically, you can 
         index like a list or a dict.
         '''
-        return self.body[k] if isinstance(k, (int, slice)) else next((b for b in self.body if nocase(b.name, k)), None)
+        if isinstance(k, (int, slice)):
+            return self.body[k]
+        for b in self.body:
+            if nocaseeq(getattr(b, 'name', None), k):
+                return b
+        raise KeyError(k)
 
-    def __delitem__(self, k):
+    def __delitem__(self, k: int|slice|str):
         '''Delete a line from the Block.'''
         if isinstance(k, (int, slice)):
             del self.body[k]
         else:
             for i, b in enumerate(self.body):
-                print(b.name, k, nocase(b.name, k))
-                if nocase(b.name, k):
+                if nocaseeq(getattr(b, 'name', None), k):
                     del self.body[i]
                     return
             raise KeyError(k)
 
+    def get(self, k: str|int, default=None):
+        try:
+            return self[k]
+        except (KeyError, IndexError):
+            return default
+
     # basic manipulation
 
-    def prepend(self, *x):
+    def prepend(self, *x: BodyType):
         '''Prepend lines to the body.'''
         self.body[0:0] = x
         return self
 
-    def append(self, *x):
+    def append(self, *x: BodyType):
         '''Append lines to the body.'''
         self.body.extend(x)
         return self
 
-    def indent(self, n=1, width=None):
+    def indent(self, n: int=1, width: int|None=None):
         '''Indent the entire block.'''
         width = self.INDENT_WIDTH if width is None else width
         self.min_indent = max(self.min_indent + n * width, 0)
         return self
 
-    def dedent(self, n=1, width=None):
+    def dedent(self, n: int=1, width: int|None=None):
         '''Dedent the entire block.'''
         return self.indent(-n, width)
 
-    def set_indent(self, indent):
+    def set_indent(self, indent: int):
         if indent is not None:
             self.min_indent = indent
         return self
@@ -228,10 +249,16 @@ class Block:
     #     self.leading, self.trailing = [], []
     #     return self
 
-    def section_partition(self, pattern, get_kind=None, break_unnamed_sections=None):
+    def section_partition(self, pattern: str, get_kind=None, break_unnamed_sections=None):
         self.body = _section_partition(''.join(map(str, self.body)), pattern, get_kind, break_unnamed_sections)
         return self
 
+
+
+
+class Block(BaseBlock[Union[str, BaseBlock[str]]]):
+    def _prepare_body_lines(self, lines: list[str]) -> list[str]:
+        return lines
 
 
 class Param(Block):
@@ -264,7 +291,7 @@ class Param(Block):
         if k in self._keys:  # track changes
             self.__data[k] = v
             self.changed = True
-        super().__setattr__(k, v)
+        object.__setattr__(self, k, v)
 
     def get(self, k):
         return getattr(self, k, None)
@@ -297,7 +324,7 @@ class Param(Block):
         return kw
 
 
-class Docstring(Block):
+class Docstring(BaseBlock[Block]):
     '''This represents an entire docstring with each section '''
     HEADER_GROUPS = dict(
         ARGS=["Arguments", "Args", "Parameters", "Params"],
@@ -308,6 +335,8 @@ class Docstring(Block):
         YIELD=["Yields"])
     SUPPORTS_PARAMS = ('ARGS', 'ATTRS')
     SUPPORTS_UNNAMED_PARAMS = ('RETURN', 'YIELD', 'EXCEPT')
+    FIRST_BLOCK_DEFAULT_NAME = 'Description'
+    FIRST_BLOCK_DEFAULT_KIND = 'DESC'
 
     header_format = r'^({}):? *\n'
     class Param(Param): pass
@@ -333,14 +362,17 @@ class Docstring(Block):
             self.header_format.format("|".join(kinds)), 
             kinds.get, 
             self._break_unnamed_sections)
-        for b in body:
-            self.handle_section(b)
+        for i, b in enumerate(body):
+            self.handle_section(b, i)
         return self
 
     def _break_unnamed_sections(self, body):
         return [body]
 
-    def handle_section(self, block):
+    def handle_section(self, block: Block, i: int):
+        if not i:
+            block.name = block.name or self.FIRST_BLOCK_DEFAULT_NAME
+            block.kind = block.kind or self.FIRST_BLOCK_DEFAULT_KIND
         if block.kind in self.SUPPORTS_UNNAMED_PARAMS:
             block.body = [self.Param(l, can_be_unnamed=True) for l in _group_indents(block.body)]
         elif block.kind in self.SUPPORTS_PARAMS:
@@ -349,13 +381,13 @@ class Docstring(Block):
 
     def children(self, *a, **kw):
         for p in self.body:
-            yield from p.children(*a, **kw)
+            yield from p.children(*a, include_self=True, **kw)
 
     def first(self, *a, **kw):
         return next(iter(self.children(*a, **kw)), None)
 
-    def __getitem__(self, k):
-        return self.body[k] if isinstance(k, (int, slice)) else next((b for b in self.body if nocase(b.name, k)), None)
+    def _prepare_body_lines(self, lines: list[str]) -> list[Block]:
+        return [Block(l) if not isinstance(l, Block) else l for l in lines]
 
 
 
@@ -522,14 +554,31 @@ def _break_minimum_indent(section):
     return [lines[:i_break], lines[i_break:]]
 
 
-def _break_full_newline(section):
+# def _break_full_newline(section):
+#     '''Break after an entirely blank line'''
+#     lines = section.splitlines(keepends=True)
+#     i_start = next((i+1 for i, l in enumerate(lines) if l.strip()), None)
+#     i_break = next((i+1 for i, l in enumerate(lines) if i >= i_start and not l.strip()), None)
+#     if i_break is None or i_break >= len(lines):
+#         return [lines]
+#     return [lines[:i_break], lines[i_break:]]
+
+def _ibreak_full_newline(section):
     '''Break after an entirely blank line'''
     lines = section.splitlines(keepends=True)
-    i_start = next((i+1 for i, l in enumerate(lines) if l.strip()), None)
-    i_break = next((i+1 for i, l in enumerate(lines) if i >= i_start and not l.strip()), None)
-    if i_break is None or i_break >= len(lines):
-        return [lines]
-    return [lines[:i_break], lines[i_break:]]
+    i_blank = -1
+    offset = 0
+    for i, l in enumerate(lines):
+        i_blank = i if i_blank < offset and not l.strip() else i_blank
+        if i_blank > offset and l.strip():
+            yield lines[offset:i]
+            offset = i
+    if not offset or offset < len(lines):
+        yield lines[offset:]
+
+def _break_full_newline(section):
+    return list(_ibreak_full_newline(section))
+
 
 
 def _group_indents(lines):
@@ -552,7 +601,7 @@ def _group_indents(lines):
     groups = []
     if tops and tops[0]:
         groups.append(lines[:tops[0]])
-    for i, j in zip([0] + tops, tops + [None]):
+    for i, j in zip([0] + tops, tops + [None]):  # type: ignore
         if i != j:
             groups.append(lines[i:j])
     return [''.join(ls) for ls in groups]
@@ -572,11 +621,11 @@ def border(text, title=None, top_ch='-', side_ch='|', n_top=3):
     '''Adds a border to the left and top sides, with an optional title.'''
     return top_ch * n_top + (f' {title} {top_ch}' if title else '') + '\n' + comment(text, side_ch)
 
-def nocase(a, b):
+def nocaseeq(a, b):
     '''Compare two values case-insensitively.'''
     return (a.lower() if isinstance(a, str) else a) == (b.lower() if isinstance(b, str) else b)
 
-def aslines(text, end_newline=True) -> list[Block|str]:
+def aslines(text, end_newline=True) -> list[str]:
     '''Convert a block of text to lines, preserving new lines.'''
     lines = text.splitlines(keepends=True) if isinstance(text, str) else text or []
     if end_newline and lines and isinstance(lines[-1], str) and not lines[-1].endswith('\n'):
@@ -623,13 +672,12 @@ def separate_whitespace(lines):
 
 
 STYLES = {
-    'google': Google(),
-    'numpy': Numpy(),
+    'google': Google,
+    'numpy': Numpy,
 }
 
-def parse(func, style=None, **kw):
-    style = [style] if isinstance(style, str) else style or list(STYLES)
-    for s in style:
+def parse(func, style: str|None=None, **kw):
+    for s in [style] if isinstance(style, str) else style or list(STYLES):
         return STYLES[s](func, **kw).parse()
 
 
