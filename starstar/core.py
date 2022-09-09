@@ -1,6 +1,7 @@
 from __future__ import annotations
 import inspect
-from typing import cast as tcast
+from types import MappingProxyType
+from typing import Callable, cast as tcast
 from inspect import signature as _builtin_signature, Signature as _Signature
 from functools import wraps as _builtin_wraps, update_wrapper as _update_wrapper
 import docstring_parser as dcp
@@ -53,7 +54,7 @@ dcp.google.GoogleParser._build_meta = _build_meta
 
 
 
-def divide(kw, *funcs, mode='strict', varkw=True):
+def divide(kw: dict, *funcs: Callable, mode='strict', varkw: bool=True):
     '''Divide ``**kwargs`` between multiple functions based on their signatures.
     
     Arguments:
@@ -151,7 +152,7 @@ def divide(kw, *funcs, mode='strict', varkw=True):
     return kws
 
 
-def _nested_cached_sig_params(f):
+def _nested_cached_sig_params(f: Callable|list|tuple) -> dict|MappingProxyType:
     '''Get and merge signature parameters for potentially multiple functions.'''
     # return signature(f).parameters
     # return {k: p for fi in _nested(f) for k, p in signature(fi).parameters.items()}
@@ -166,7 +167,7 @@ def _nested(xs, types=(tuple, list)):
         yield xs
 
 
-def signature(f, required=True) -> _Signature:  # type: ignore
+def signature(f: Callable, required=True) -> _Signature:  # type: ignore
     '''Get a function signature.
     
     Faster than inspect.signature (after the first call) because it 
@@ -189,7 +190,7 @@ def signature(f, required=True) -> _Signature:  # type: ignore
         if required:
             raise
 
-def traceto(*funcs, keep_varkw=None, filter_hidden=True, doc=False):  # , kw_only=True
+def traceto(*funcs: Callable, keep_varkw=None, filter_hidden=True, doc=False) -> Callable:  # , kw_only=True
     '''Tell a function where its ``**kwargs`` are going!
 
     This is similar to ``functools.wraps``, except that it merges the signatures of multiple functions
@@ -279,7 +280,7 @@ def traceto(*funcs, keep_varkw=None, filter_hidden=True, doc=False):  # , kw_onl
 
 
 
-def wraps(func, skip_args=(), skip_n=0):
+def wraps(func: Callable, skip_args=(), skip_n=0) -> Callable:
     '''``functools.wraps``, except that it merges the signature.
 
     .. note::
