@@ -368,7 +368,7 @@ def _outer_comma_and_pipe_indices(s: str):
 
 
 
-def myfunction(aaa, bbb=5, /, *a, wow: int|list, quoi='aaa', **kw):
+def myfunction(aaa, bbb=5, *a, wow: int|list, quoi='aaa', **kw):
         '''Look at my function
 
         I love it so much
