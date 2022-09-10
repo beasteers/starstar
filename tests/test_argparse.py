@@ -6,7 +6,7 @@ import pytest
 
 
 
-def myfunction(aaa, bbb: int=5, /, *a, wow: int|list, quoi='aaa', **kw):
+def myfunction(aaa, bbb: int=5, *a, wow: int|list, quoi='aaa', **kw):
         '''Look at my function
 
         I love it so much
