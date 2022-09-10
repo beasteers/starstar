@@ -3,8 +3,10 @@ Getting Arguments
 ===================
 
 .. automodule:: starstar
-    :members: signature, get_args, as_args_kwargs, unmatched_kw
+    :members: signature, get_args, as_args_kwargs
 
+
+``starstar`` also provides shortcuts for parameter types in ``inspect.Parameter``
 
 Single Argument Types (``int``): 
 

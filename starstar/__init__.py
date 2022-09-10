@@ -1,5 +1,7 @@
 from .__version__ import __version__
 from .core import *
+from .defaults import *
+from .dcp_nesteddoc import *
 # needed for autodoc
 # from .core import (
 #     divide, 

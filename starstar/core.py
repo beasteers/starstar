@@ -1,10 +1,9 @@
 from __future__ import annotations
 import inspect
 from types import MappingProxyType
-from typing import Callable, cast as tcast
+from typing import Callable, Iterable, cast as tcast
 from inspect import signature as _builtin_signature, Signature as _Signature
 from functools import wraps as _builtin_wraps, update_wrapper as _update_wrapper
-import docstring_parser as dcp
 
 
 POS_ONLY = inspect.Parameter.POSITIONAL_ONLY
@@ -23,38 +22,7 @@ NOT_KW = ALL - KW
 
 
 
-# Needed for issue: https://github.com/rr-/docstring_parser/issues/61
-def _build_meta(self, text, title):
-    section = self.sections[title]
-
-    if (
-        section.type == dcp.google.SectionType.SINGULAR_OR_MULTIPLE
-        and not dcp.google.MULTIPLE_PATTERN.match(text)
-    ) or section.type == dcp.google.SectionType.SINGULAR:
-        return self._build_single_meta(section, text)
-
-    if ":" not in text:
-        raise dcp.ParseError("Expected a colon in {}.".format(repr(text)))
-
-    # Split spec and description
-    before, desc = text.split(":", 1)
-    if desc:
-        desc = desc[1:] if desc[0] == " " else desc
-        if "\n" in desc:
-            lines = desc.splitlines(keepends=True)
-            first_line, lines = lines[0], lines[1:]
-            i = next((i for i, l in enumerate(lines) if l.strip()), 0)
-            spaces = ''.join(lines[:i])
-            rest = ''.join(lines[i:])
-            desc = first_line + spaces + inspect.cleandoc(rest)
-        desc = desc.strip("\n")
-
-    return self._build_multi_meta(section, before, desc)
-dcp.google.GoogleParser._build_meta = _build_meta
-
-
-
-def divide(kw: dict, *funcs: Callable, mode='strict', varkw: bool=True):
+def divide(kw: dict, *funcs: Callable|Iterable[Callable], mode='strict', varkw: bool=True):
     '''Divide ``**kwargs`` between multiple functions based on their signatures.
     
     Arguments:
@@ -360,159 +328,17 @@ def _param_groups(sig, skip_args=()):
         [p for p in params if p.kind == VAR_KW])
 
 
-# def partial(__func, *a_def, **kw_def):
-#     '''``functools.partial``, except that it updates the signature and wrapper.'''
-#     @wraps(__func, skip_n=len(a_def))
-#     def inner(*a, **kw):
-#         return __func(*a_def, *a, **{**kw_def, **kw})
-#     return inner
-
-
-class _Defaults:
-    def __init__(self, func, varkw=True, strict=False, frozen=None):
-        self.function = func
-        self.kw_defaults = {}
-        self.__name__ = getattr(func, '__name__', None)
-
-        _update_wrapper(self, func)
-        sig = signature(func)
-        ps = sig.parameters
-        self.posargs = [k for k in ps if ps[k].kind in (POS_ONLY, POS_KW)]
-        self.varkw = varkw and any(p.kind == VAR_KW for p in ps.values())
-        self.strict = strict
-
-        if func.__kwdefaults__ is None:
-            func.__kwdefaults__ = {}
-        self._backup = frozen or self._freeze()        
-
-    def __str__(self):
-        return '{}({}){}'.format(self.__class__.__name__, self.__name__, self.function.__signature__)
-
-    def __call__(self, *a, **kw):
-        pos = set(self.posargs[:len(a)])
-        return self.function(*a, **{
-            k: v for k, v in ({**self.kw_defaults, **kw}).items()
-            if k not in pos
-        })
-
-    def update(self, **update):
-        '''Update the function's defaults.'''
-        update = update_defaults(self.function, **update)
-        if update:
-            if not self.varkw:
-                raise TypeError('Unexpected arguments: {}'.format(set(update)))
-            self.kw_defaults.update(update)
-        return self
-
-    def clear(self):
-        '''Reset the function's defaults.'''
-        self._restore(self._backup)
-        return self
-
-    def get(self):
-        '''Get the function's defaults.'''
-        return get_defaults(self.function)
-
-    def _freeze(self):
-        '''Get the current defaults/signature in case we want to restore back to this point.'''
-        f = self.function
-        return (signature(f), f.__defaults__, dict(f.__kwdefaults__), dict(self.kw_defaults))
-
-    def _restore(self, frozen):
-        '''Use the output of self._freeze() to restore to a previous set of defaults.'''
-        f = self.function
-        f.__signature__, f.__defaults__, f.__kwdefaults__, self.kw_defaults = frozen
-        return self
-
-
-def defaults(func, *a, **kw):
-    '''Allow functions to have easily overrideable default arguments.
-    Works with mixed positional and keyword arguments.
-
-    This is a wrapper around ``update_defaults``, that also supports 
-    default values for unnamed arguments (``**kwargs``).
-
-    ``defaults(func).update`` will raise a ``TypeError`` if an extra 
-    argument is passed, whereas ``update_defaults`` will return 
-    the extra arguments.
-
-    NOTE: This interface is not stable yet.
-
-    .. code-block:: python 
-
-        @starstar.defaults
-        def abc(a=5, b=6):
-            return a + b    
-
-        assert abc() == 11
-        abc.update(a=10)
-        assert abc() == 16
-        assert abc(2) == 8
-    '''
-    inner = lambda func: _Defaults(func, *a, **kw)
-    return inner(func) if callable(func) else inner
-
-
-def update_defaults(func, **update):
-    '''Update a function's default arguments. Because functions don't 
-    have a mechanism for defining default ``**kwargs``, this will return 
-    any parameters not explicitly named in the signature. 
-
-    TODO: should this be strict?
-
-    .. code-block:: python 
-
-        def abc(a=5, b=6):
-            return a + b
-
-        assert starstar.get_defaults(abc) == {'a': 5, 'b': 6}
-
-        starstar.update_defaults(abc, b=7)
-
-        assert starstar.get_defaults(abc) == {'a': 5, 'b': 7}
-    '''
-    sig = signature(func)
-    ps = sig.parameters
-
-    # update signature (do this before we pop)
-    if set(ps) & set(update):
-        func.__signature__ = sig.replace(parameters=[
-            p.replace(default=update[k]) if k in update else p
-            for k, p in ps.items()
-        ])
-
-    # update pos/poskw
-    posargs = [k for k in ps if ps[k].kind in (POS_ONLY, POS_KW)]
-    if func.__defaults__ and set(posargs) & set(update):
-        func.__defaults__ = tuple(
-            update.pop(name, current)
-            for name, current in zip(posargs[::-1], func.__defaults__[::-1])
-        )[::-1]
-
-    # update kwonly/varkw
-    kw_defaults = func.__kwdefaults__
-    if kw_defaults and update:
-        kw_defaults.update(
-            (k, update.pop(k)) for k in set(update) if k in kw_defaults)
-
-    # if not any(p.kind == VAR_KW for p in ps):  # 
-    #     update.clear()
-    return update
-
-
-def get_defaults(func):
-    '''Get the non-empty default arguments to a function (as a dict).
+def partial(__func, *a_def, **kw_def):
+    '''``functools.partial``, except that it updates the signature and wrapper.
     
-    .. code-block:: python 
-
-        def abc(a=5, b=6):
-            return a + b
-
-        assert starstar.get_defaults(abc) == {'a': 5, 'b': 6}
+    known bug: kw defaults dont update in signature.
     '''
-    ps = ((k, p.default) for k, p in signature(func).parameters.items() if p.kind not in VAR)
-    return {k: d for k, d in ps if d is not inspect._empty}
+    @wraps(__func, skip_n=len(a_def))
+    def inner(*a, **kw):
+        return __func(*a_def, *a, **{**kw_def, **kw})
+    return inner
 
+# given signature and dict, produce *a, **kw
 
 def as_args_kwargs(func, kw):
     '''Separate out positional and keyword arguments using a function's signature.
@@ -559,6 +385,7 @@ def as_args_kwargs(func, kw):
         pos.append(kw.pop(name))
     return pos, kw
 
+# get arguments matching a condition
 
 def get_args(func, match=(), ignore=()):
     '''Get argument parameters matching a specific type.
@@ -598,27 +425,9 @@ def get_args(func, match=(), ignore=()):
         assert [p.name for p in args] == ['z']
     '''
     match = (set(asitems(match)) or ALL) - set(asitems(ignore))
-    return [p for k, p in signature(func).parameters.items() if p.kind in match]
-#     return list(iargs_matching(func, match, ignore))
-# def iargs_matching(func, match=(), ignore=()):
-#     '''Get argument parameters matching a specific type (as a generator).'''
-#     match = (set(asitems(match)) or ALL) - set(asitems(ignore))
-#     return (p for k, p in signature(func).parameters.items() if p.kind in match)
-# def group_args_matching(func, *matches, ignore=()):
-#     '''Get argument parameters matching specific types.
-    
-#     This is equivalent to ``args_matching`` except it will 
-#     pull out multiple groups of arguments.
+    return [p for p in signature(func).parameters.values() if p.kind in match]
 
-#     .. code-block:: python
-
-#         assert signature.args
-#     '''
-#     ignore = set(asitems(ignore))
-#     matches = [set(asitems(m)) - ignore for m in matches or (ALL,)]
-#     ps = signature(func).parameters.values()
-#     return [[p for k, p in ps if p.kind in m] for m in matches]
-
+# get required arguments
 
 def required_args(func):
     '''Get the required arguments for a function.'''
@@ -627,42 +436,18 @@ def required_args(func):
         if p.default is inspect._empty and p.kind not in VAR
     ]
 
+# filter kw dict using function signature
 
-# def valid_args(f, *a, **kw):
-#     s = signature(f)
-#     ps = list(s.parameters.values())
-#     if not ps:
-#         return not (a or kw)
-#     varpos = next((i for i, p in enumerate(ps) if p.kind == VAR_POS), None)
-#     if varpos:
-#         pass
-
-#     i = 0
-#     for i, a in enumerate(a):
-#         if i >= len(ps):
-#             return False
-#         p = ps[i]
-#         if p.kind == VAR_POS:
-#             i += 1
-#             break
-#     # if ps[i].kind == :
-#     #     pass
-    
-    
-
-#     ppos = get_args(f, POS)
-
-#     pkw = get_args(f, KW_ONLY)
-#     return True
-
-
-
-def filter_kw(func, kw, skip_n=0, include_varkw=True):
+def filter_kw(func, kw, skip_n=0, pop=False, inverse=False, unmatched=False, include_varkw=True):
     '''Filter ``**kwargs`` down to only those that appear in the function signature.
     
     Arguments:
         func (callable): The function to filter using.
-        **kw: keyword arguments that you'd like to filter.
+        kw: keyword arguments that you'd like to filter.
+        pop (bool): Remove matched keys from kw.
+        inverse (bool): Return keys not in function signature.
+        include_varkw (bool): if a function takes **kw, should it 
+            swallow all arguments? default True.
 
     Returns:
         (dict): the filtered ``kwargs``
@@ -676,12 +461,15 @@ def filter_kw(func, kw, skip_n=0, include_varkw=True):
         assert starstar.filter_kw(func_a, args) == {'b': 2, 'c': 3}
     '''
     ps = list(signature(func).parameters.values())[skip_n or 0:]
-    if not ps:
-        return {}
-    if include_varkw and next((True for p in ps if p.kind == VAR_KW), False):
-        return kw
+    varkw = include_varkw and next((True for p in ps if p.kind == VAR_KW), False)
+    ks = set(kw)
     ps = {p.name for p in ps if p.kind in KW}
-    return {k: v for k, v in kw.items() if k in ps}
+    if varkw:
+        ps = ps|ks
+    if unmatched:
+        return ks - ps if inverse else ps - ks
+    ks = ks - ps if inverse else ks & ps
+    return {k: kw.pop(k) for k in ks} if pop else {k: kw[k] for k in ks}
 
 
 def filtered(func):
@@ -702,75 +490,6 @@ def filtered(func):
     def inner(*a, **kw):
         return func(*a, **filter_kw(func, kw))
     return inner
-
-
-def unmatched_kw(func, *keys, include_varkw=True, reversed=False):
-    '''Returns keys that do not appear in the function signature.
-    
-    Arguments:
-        func (callable): The function to filter using.
-        *keys: keys that you'd like to check.
-        include_varkw (bool): If True and the function accepts ``**kwargs``, it will assume 
-            the function takes any kwargs. Default True.
-        reversed (bool): If True, it will return the parameters from the function that
-            do not appear in the provided keys. Default False.
-
-    .. code-block:: python
-
-        def func_a(a, b, c): 
-            pass
-
-        assert starstar.unmatched_kw(func_a, 'a', 'b', 'z') == {'z'}
-        assert starstar.unmatched_kw(func_a, 'a', 'b', 'z', reversed=True) == {'c'}
-
-        def func_b(a, b, c, **kw): 
-            pass
-
-        assert starstar.unmatched_kw(func_b, 'a', 'b', 'z') == set()
-        assert starstar.unmatched_kw(func_b, 'a', 'b', 'z', reversed=True) == {'c'}
-    '''
-    ps = signature(func).parameters
-    if include_varkw and not reversed and next((True for p in ps.values() if p.kind == VAR_KW), False):
-        return set()
-    ps = {k for k, p in ps.items() if p.kind in KW}
-    ks = set(keys)
-    return ps - ks if reversed else ks - ps
-
-
-def popkw(func, kw, skip_n=0, skip_args=None):
-    '''Pop any keywords that belong to this function.
-
-    This is very similar to :func:`divide`, except that it's meant for 
-    less-structured scenarios where you want to pull arguments one 
-    function at a time. NOTE: This only handles named arguments and 
-    does not pop everything if a function takes varkw.
-    
-    Arguments:
-        func (callable): The function to pull kwargs for.
-        kw (dict): The ``**kwargs`` dictionary.
-        skip_n (int): This lets you ignore the first ``n`` arguments.
-        skip_args (list, set, tuple): This lets you skip arguments by name.
-
-    .. code-block:: python
-
-        def somefunc(x, do_something=False): ...
-
-        kw = {'asdf': 10, 'do_something': True}
-
-        # separate out the kwargs for `somefunc`.
-        # use `skip_n=1` so that we don't pop out `x` (if it exists, since we specify that later)
-        somefunc_kw = starstar.popkw(somefunc, kw, skip_n=1)
-        assert kw == {'asdf': 10}
-        assert somefunc_kw == {'do_something': True}
-
-        somefunc(100, **somefunc_kw)
-        otherfunc(**kw)
-    '''
-    skip_args = skip_args or set()
-    return {
-        k: kw.pop(k) for k in (p.name for p in get_args(func, NAMED)[skip_n:]) 
-        if k in kw and k not in skip_args}
-
 
 
 def kw2id(kw, *keys, key=True, sep='-', key_sep='_', filter=True, missing='', format=str):
@@ -795,39 +514,9 @@ def kw2id(kw, *keys, key=True, sep='-', key_sep='_', filter=True, missing='', fo
     return sep.join(f'{k}{key_sep}{format(i)}' if key else f'{i}' for k, i in ki)
 
 
-# # keep a record of your kwargs on disk (reproducability)
-# def _save_kw(func, kw, keys=()):
-#     import time, json
-#     with open(f'{func.__name__}_{kw2id(kw, *keys) or "kw"}_{time.time()}.json', 'w') as f:
-#         json.dump(kw, f)
 
-# def _load_kw(func, kw, fname):
-#     import json
-#     with open(fname, 'r') as f:
-#         return json.load(f)
-
-
-# def save_kw(save=_save_kw, load=_load_kw):
-#     '''Record the arguments passed to a function, including the function's defaults.
-    
-#     Also allows restoring arguments from a previous run using ``kw_restore='path/to/outputted.json'``
-#     '''
-#     def outer(func):
-#         @wraps(func)
-#         def inner(*a, kw_restore=False, **kw):  # 
-#             pos = get_args(func, POS)
-#             if kw_restore:
-#                 kw.update(_load_kw(kw_restore))
-#             d = get_defaults(func)
-#             d.update(((p.name, x) for p, x in zip(pos, a)), **kw)
-#             save(func, d)
-#             return func(*a, **kw)
-#         return inner
-#     return outer
-
-
-def asitems(x):
-    '''Convert a value into a list/tuple/set. Useful for arguments that can be ``None, str, list, tuple``.
+def asitems(x, types=(list, tuple, set)):
+    '''Convert a value into a list/tuple/set. Useful for arguments that can be ``None, single item, list, tuple``.
 
     .. code-block:: python
 
@@ -835,233 +524,8 @@ def asitems(x):
         assert starstar.asitems('asdf') == ['asdf']
         assert starstar.asitems([1, 2, 3]) == [1, 2, 3]
     '''
-    return x if isinstance(x, (list, tuple, set)) else (x,) if x is not None else ()
-
-
-# class Docstring:
-#     def __init__(self, doc, merge=True):
-#         self.doc = doc or ''
-#         self.merge = merge
-#         self._parsed = None
-
-#     def compile(self):
-#         return self.doc
-
-#     def __str__(self):
-#         if not self.merge:
-#             return self.doc or ''
-#         if self._parsed is None:
-#             self._parsed = self.compile()
-#         return str(self._parsed or '')
-
-# class MergedDocstring(Docstring):
-#     def __init__(self, doc, funcs, ps=None, **kw):
-#         super().__init__(doc, **kw)
-#         self.funcs = funcs or []
-#         self.ps = ps
-        
-#     def compile(self):
-#         return mergedoc(self.doc, self.funcs, self.ps)
-
-# class NestedDocstring(Docstring):
-#     def __init__(self, doc, funcs, **kw):
-#         super().__init__(doc, **kw)
-#         self.funcs = funcs or {}
-
-#     def compile(self):
-#         return nestdoc(self.doc, self.funcs)
-
-
-def _mergedoc(doc, funcs, ps=None, style=None):
-    import docstring_parser as dcp
-    funcs = list(_nested(funcs))  # unravel nested functions
-
-    if ps is None:
-        ps = [p for f in funcs for p in signature(f).parameters.values()]
-
-    parsed = dcp.parse(doc)
-    docstrs = [dcp.parse(f.__doc__ or '') for f in funcs]
-    docps = [{p.arg_name: p for p in d.params} for d in docstrs]
-
-    # find the style from the first function that isn't just a description
-    style = style or next(
-        (d.style for d in [parsed]+docstrs if d.meta), 
-        parsed.style)
-
-    # hack to add a new line between description and parameters
-    # if the main function doesn't have params of its own.
-    if not parsed.meta:
-        parsed.blank_after_long_description = True
-
-    # add params to main docstring
-    params = []
-    existing = {p.arg_name for p in parsed.params}
-    for p in ps:
-        if p.name in existing:
-            continue
-        for d in docps:
-            if p.name in d:
-                existing.add(p.name)
-                params.append(d[p.name])
-                break
-
-    # find the right place to splice in the params
-    meta = parsed.meta
-    i = next((
-        i+1 for i, m in list(enumerate(meta))[::-1] 
-        if isinstance(m, dcp.DocstringParam)), 0)
-    parsed.meta = meta[:i] + params + meta[i:]
-    return dcp.compose(parsed, style=style)
-
-
-def _nestdoc(doc, funcs, style=None):
-    
-    def _indented_doc_args(func):
-        dd = dcp.parse(func.__doc__)
-        dd.long_description = ''
-        dd.short_description = ''
-        dd.blank_after_long_description = False
-        dd.blank_after_short_description = False
-        dd.meta = [m for m in dd.meta if m.args[0] == 'param']
-        for m in dd.meta:
-            m.arg_name = f' - {m.arg_name}'
-        return '\n'.join(dcp.compose(dd).lstrip().splitlines()[1:])
-
-    parsed = dcp.parse(doc)
-    docstrs = {k: dcp.parse(f.__doc__ or '') for k, f in funcs.items()}
-
-    # find the style from the first function that isn't just a description
-    style = style or next(
-        (d.style for d in [parsed]+list(docstrs.values()) if d.meta), 
-        parsed.style)
-
-    # hack to add a new line between description and parameters
-    # if the main function doesn't have params of its own.
-    if not parsed.meta:
-        parsed.blank_after_long_description = True
-
-    # add params to main docstring
-    params = []
-    current_params = parsed.params
-    existing = {p.arg_name for p in current_params}
-
-    # add arguments
-    for key, func in funcs.items():
-        if key in existing:
-            for p in current_params:
-                if p.name == key:
-                    desc = p.description or f'Keyword arguments for :func:`{func.__name__}`.'
-                    p.description = f'{desc}\n\n{_indented_doc_args(func)}'
-                    p.type_name = p.type_name or 'dict'
-                    break
-        else:
-            params.append(dcp.DocstringParam(
-                ['param', f'{key} (dict)'], 
-                f'Keyword arguments for :func:`{func.__name__}`.\n\n{_indented_doc_args(func)}',
-                arg_name=key, type_name='dict', 
-                is_optional=True, default=None))
-
-    # find the right place to splice in the params
-    meta = parsed.meta
-    i = next((
-        i+1 for i, m in list(enumerate(meta))[::-1] 
-        if isinstance(m, dcp.DocstringParam)), 0)
-    parsed.meta = meta[:i] + params + meta[i:]
-    return dcp.compose(parsed, style=style)
-
-
-def nestdoc(*funcs, template='{}_kw', **named):
-    '''Nest a function's docstring parameters as a dict in another
-    function's parameters.
-    
-    Arguments:
-        *funcs: functions to nest. The argument name is gotten using ``template``.
-        template (str): The keyword argument template for ``*funcs``. 
-            Defaults to ``'{}_kw'`` where {} is replaced with ``f.__name__``.
-        **named: functions to nest. The key is used as the argument name
-            in the parent function.
-
-    .. code-block:: python
-
-        def funcA(a, b):
-            """Another function
-            
-            Arguments:
-                a (int): a from funcA
-                b (int): b from funcA
-            """
-
-        def funcB(b, c):
-            """Anotherrrr function
-            
-            Arguments:
-                b (int): b from funcB
-                c (int): c from funcB
-            """
-
-
-        def funcC(**kw):
-            """Hello"""
-        funcD = nested_doc(funcA, funcB)(funcC)
-
-        print(funcD.__doc__)
-        """
-        Hello
-
-        Args:
-            funcA_kw (dict?): Keyword arguments for ``funcA``.
-                
-                    - a (int): a from funcA
-                    - b (int): b from funcA
-            funcB_kw (dict?): Keyword arguments for ``funcB``.
-                
-                    - b (int): b from funcB
-                    - c (int): c from funcB
-        """
-
-    '''
-    allfuncs = {}
-    for f in funcs:
-        allfuncs[template.format(f.__name__)] = f
-    allfuncs.update(named)
-    if not all(callable(f) for f in named.values()):
-        raise TypeError("all functions must be callable")
-
-    def inner(func):
-        @_builtin_wraps(func)
-        def func2(*a, **kw):  # copies func
-            return func(*a, **kw)
-        func2.__doc__ = _nestdoc(func.__doc__, allfuncs) #str(NestedDocstring(func.__doc__, named))
-        return func2
-    return inner
+    return x if isinstance(x, types) else (x,) if x is not None else ()
 
 
 
-# def funcA(a, b):
-#     '''Another function
-    
-#     Arguments:
-#         a (int): blah
-#         b (int): blallhak
-#     '''
-
-# def funcB(b, c):
-#     '''Anotherrrr function
-    
-#     Arguments:
-#         b (int): blah
-#         c (int): blallhak
-#     '''
-
-
-# def funcC(**kw):
-#     '''Hello
-    
-#     Arguments:
-#         x: asdfasdf
-            
-            
-#             asdfasdf
-#             asdf
-#     '''
-# funcD = nestdoc(funcA, funcB)(funcC)
+from .dcp_nesteddoc import _mergedoc #  circular

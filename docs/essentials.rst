@@ -10,4 +10,4 @@ Argument Filtering
 ---------------------
 
 .. automodule:: starstar
-    :members: filtered, filter_kw, popkw
+    :members: filtered, filter_kw

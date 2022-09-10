@@ -332,19 +332,23 @@ def test_kw_filtering():
     
     kw = dict(b=2, c=3, x=1, y=2)
     assert starstar.filter_kw(func_a, kw) == {'b': 2, 'c': 3}
-
+    assert starstar.filter_kw(func_a, kw, inverse=True) == {'x': 1, 'y': 2}
+    assert starstar.filter_kw(func_a, kw, unmatched=True) == {'a'}
+    assert starstar.filter_kw(func_a, kw, unmatched=True, inverse=True) == {'x', 'y'}
     assert starstar.filter_kw(lambda b, **kw: kw, kw) == kw
 
     func_a1 = starstar.filtered(func_a)
     func_a1(1, 2, c=3, x=1, y=2)  # just gonna ignore x and y
 
-    assert starstar.unmatched_kw(func_a1, 'a', 'b', 'z') == {'z'}
-    assert starstar.unmatched_kw(func_a1, 'a', 'b', 'z', reversed=True) == {'c'}
+    assert set(starstar.filter_kw(func_a1, kw, inverse=True)) == {'x', 'y'}
 
     def func_b(a, b, c, **kw): 
         return a+b+c, kw
-    assert starstar.unmatched_kw(func_b, 'a', 'b', 'z') == set()
-    assert starstar.unmatched_kw(func_b, 'a', 'b', 'z', reversed=True) == {'c'}
+    kw = {'a':1, 'b':1, 'z':1}
+    assert starstar.filter_kw(func_b, kw) == kw
+    assert starstar.filter_kw(func_b, kw, inverse=True) == {}
+    assert starstar.filter_kw(func_b, kw, unmatched=True) == {'c'}
+    assert starstar.filter_kw(func_b, kw, unmatched=True, inverse=True) == set()
 
 
 def test_get_args():

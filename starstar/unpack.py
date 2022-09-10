@@ -28,7 +28,7 @@ _STAR = _SYM('star')
 
 
 _FRAME_CACHE = {}
-def assignedto(up=0, cache=True):
+def assignedto(up=0, cache=True)  -> tuple:
     '''Parse the assignment of a line of code and get the names of the assignment variables.
     
     Arguments:
@@ -139,7 +139,7 @@ def assignedto(up=0, cache=True):
     return keys
 
 
-def unpack(data=None, *pos_defaults, _up_=0, _default_None_=True, _cached_assignment_=True, **defaults):
+def unpack(data=None, *pos_defaults, _up_=0, _default_None_=True, _cached_assignment_=True, **defaults) -> tuple:
     '''Javascript-esque dict unpacking! Don't tell me you haven't wished this was possible before.
 
     Here's how you can do it with Javascript ES6

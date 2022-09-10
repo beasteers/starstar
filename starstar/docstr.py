@@ -10,9 +10,9 @@ you can edit the content of the block and the rest of it will be preserved.
 
 .. code-block:: python
 
-    from starstar.docstr import Google, Numpy
+    import starstar.docstr as ssdoc
 
-    doc = Google('''This is my docstring description.
+    doc = ssdoc.parse('''This is my docstring description.
 
     Args:
         a (str): this is a
