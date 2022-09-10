@@ -31,7 +31,11 @@ to write.
 from __future__ import annotations
 import copy
 import functools
-from typing import Any, Callable, Literal, Union, get_origin, get_type_hints, get_args
+from typing import Any, Callable, Union, get_origin, get_type_hints, get_args
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 import argparse
 import inspect
 import starstar
