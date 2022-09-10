@@ -68,7 +68,7 @@ class ArgumentParser(argparse.ArgumentParser):
 
 def from_func(
         func: Callable, 
-        /, 
+        *, 
         parser: argparse.ArgumentParser|None=None, 
         docstyle: str|None=None, 
         prog: str|bool|None=None, 
