@@ -107,7 +107,7 @@ def module_items(*ms):
     import tqdm
     for m in ms:
         ks=dir(m)
-        pb=tqdm.tqdm(ks, desc=m.__qualname__)
+        pb=tqdm.tqdm(ks, desc=getattr(m, '__qualname__', None))
         for name in ks:
             try:
                 f = getattr(m, name)
