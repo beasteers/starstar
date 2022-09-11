@@ -341,14 +341,14 @@ class Docstring(BaseBlock[Block]):
     header_format = r'^({}):? *\n'
     class Param(Param): pass
 
-    def __init__(self, doc=None, name=None):
+    def __init__(self, doc=None, name=None, cleandoc=True):
         if callable(doc):
             name = name or doc.__name__
             doc = getattr(doc, '__doc__', None)
         self.doc = doc
         self.name = name
 
-        super().__init__(doc or '', name=name, cleandoc=True, raw=True)
+        super().__init__(doc or '', name=name, cleandoc=cleandoc, raw=True)
         self.parse()
 
     def __repr__(self):

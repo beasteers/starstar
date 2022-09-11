@@ -19,7 +19,10 @@ setuptools.setup(
     url='https://github.com/{}/{}'.format(USERNAME, NAME),
     packages=setuptools.find_packages(),
     # entry_points={'console_scripts': ['{name}={name}:main'.format(name=NAME)]},
-    install_requires=['docstring_parser'],
+    install_requires=[
+        'docstring_parser',
+        'typing_extensions; python_version < "3.8.0"',
+    ],
     extras_require={
         'test': ['pytest', 'pytest-cov'],
         'doc': ['sphinx', 'pyinstrument']

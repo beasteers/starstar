@@ -101,3 +101,64 @@ def test_google():
 
     alksdfj
     ''') + '\n'
+
+
+def module_items(*ms):
+    import tqdm
+    for m in ms:
+        ks=dir(m)
+        pb=tqdm.tqdm(ks, desc=m.__qualname__)
+        for name in ks:
+            try:
+                f = getattr(m, name)
+                doc = getattr(f, '__doc__', None)
+                if doc:
+                    yield getattr(f, '__qualname__', None) or name, doc
+                    pb.update()
+            except AttributeError:
+                print('cant get', name)
+
+
+import difflib
+
+def cleandoc(doc):
+    return '\n'.join(l.lstrip() and l for l in inspect.cleandoc(doc).splitlines())
+
+def checkdiff(doc, **kw):
+    doc1 = cleandoc(doc).rstrip('\n')
+    d = ssd.parse(doc, **kw)
+    doc2 = cleandoc(str(d)).rstrip('\n')
+    # print(repr(d))
+    assert doc1 == doc2, difflib.unified_diff(doc1.splitlines(), doc2.splitlines()) if doc1 == doc2 else ''
+
+def test_numpy_module():
+    try:
+        import numpy as np
+    except ImportError:
+        pass
+    for name, doc in module_items(np):
+        checkdiff(doc, style='numpy')
+
+def test_scipy_module():
+    try:
+        import scipy as sp
+    except ImportError:
+        pass
+    for name, doc in module_items(sp):
+        checkdiff(doc, style='numpy')
+
+def test_fire_module():
+    try:
+        import fire
+    except ImportError:
+        pass
+    for name, doc in module_items(fire):
+        checkdiff(doc, style='google')
+
+def test_ss_module():
+    try:
+        import starstar as ss
+    except ImportError:
+        pass
+    for name, doc in module_items(ss):
+        checkdiff(doc)
