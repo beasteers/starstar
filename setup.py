@@ -24,7 +24,7 @@ setuptools.setup(
         'typing_extensions; python_version < "3.8.0"',
     ],
     extras_require={
-        'test': ['pytest', 'pytest-cov'],
+        'test': ['pytest', 'pytest-cov', 'tqdm'],
         'doc': ['sphinx', 'pyinstrument']
     },
     license='MIT License',
