@@ -135,7 +135,7 @@ def test_numpy_module():
     try:
         import numpy as np
     except ImportError:
-        pass
+        return
     for name, doc in module_items(np):
         checkdiff(doc, style='numpy')
 
@@ -143,7 +143,7 @@ def test_scipy_module():
     try:
         import scipy as sp
     except ImportError:
-        pass
+        return
     for name, doc in module_items(sp):
         checkdiff(doc, style='numpy')
 
@@ -151,7 +151,7 @@ def test_fire_module():
     try:
         import fire
     except ImportError:
-        pass
+        return
     for name, doc in module_items(fire):
         checkdiff(doc, style='google')
 
@@ -159,6 +159,6 @@ def test_ss_module():
     try:
         import starstar as ss
     except ImportError:
-        pass
+        return
     for name, doc in module_items(ss):
         checkdiff(doc)
