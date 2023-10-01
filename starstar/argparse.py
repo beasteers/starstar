@@ -31,6 +31,7 @@ to write.
 from __future__ import annotations
 import copy
 import functools
+import os
 from typing import Any, Callable, Union, get_type_hints
 try:
     from typing import Literal, get_origin, get_args
@@ -48,6 +49,12 @@ TYPE = type
 
 class ArgumentParser(argparse.ArgumentParser):
     accept_var_kw = False
+    def __init__(self, *a, **kw):
+        # allow newlines in arguments
+        kw.setdefault('formatter_class', argparse.RawDescriptionHelpFormatter)
+        kw.setdefault('conflict_handler', 'resolve')
+        super().__init__(*a, **kw)
+
     def parse_args(self, *a):
         if getattr(self, 'accept_var_kw', False):
             return self.parse_varkw_args(*a)
@@ -59,21 +66,64 @@ class ArgumentParser(argparse.ArgumentParser):
         parsed, unknown = self.parse_known_args(*a)
         key = None
         values = []
+        self2 = copy.copy(self)
         for arg in unknown + [None]:  # type: ignore
             if arg is None or arg.startswith(("-", "--")):
                 if key is not None:
-                    self.add_argument(key, required=False, type=parse, default=argparse.SUPPRESS)
+                    self2.add_argument(key, required=False, type=parse, default=argparse.SUPPRESS)
                 key = arg
                 values.clear()
                 continue
             values.append(arg)
-        return super().parse_args(*a)
+        return super(ArgumentParser, self2).parse_args(*a)
+
+
+def from_any(
+        obj: Callable|dict, #|list|tuple
+        *,
+        parser: argparse.ArgumentParser|None=None, 
+        subparsers: argparse.ArgumentParser|None=None,
+        parser_name: str|None=None,
+        _cmd_prefix: str='',
+        **kw
+):
+    if callable(obj) or isinstance(obj, type):
+        return from_func(obj, parser=parser, subparsers=subparsers, parser_name=parser_name, **kw)
+
+    # create parser if not provided
+    if parser is None:
+        if subparsers:
+            assert parser_name
+            parser = subparsers.add_parser(parser_name, help='asdf')
+        else:
+            parser = ArgumentParser(**kw)
+    # subparsers = parser._subparsers
+    # if subparsers is None:
+    subparsers = parser.add_subparsers(dest=f'__{_cmd_prefix or parser_name or ""}command', help='Available commands.')
+    # FIXME: how to handle nested commands?
+    
+    # handle different object types
+    if isinstance(obj, (list, tuple)):
+        assert all(callable(o) or isinstance(o, type) for o in obj)
+        obj = {func.__name__: func for func in obj}
+
+    obj_for_parser = obj
+    if isinstance(obj, dict):
+        for name, obj_i in obj.items():
+            from_any(obj_i, subparsers=subparsers, parser_name=name, _cmd_prefix=f'{_cmd_prefix or ""}__{name}')
+    else:
+        # parser = from_any(vars(obj), **kw)
+        raise TypeError("Object must be a function or a dict of functions.")
+    parser._calling_object = obj_for_parser
+    return parser
 
 
 def from_func(
         func: Callable, 
         *, 
         parser: argparse.ArgumentParser|None=None, 
+        subparsers: argparse.ArgumentParser|None=None, 
+        parser_name: str|None=None, 
         docstyle: str|None=None, 
         prog: str|bool|None=None, 
         actions: dict[str, str]|None=None, 
@@ -83,10 +133,11 @@ def from_func(
         nargs: dict[str, int|str]|None=None, 
         types: dict[str, Callable]|None=None, 
         dests: dict[str, str]|None=None, 
-        short: dict[str, str]|None=None,
+        # short: dict[str, str]|None=None,
+        env_format: str|None=None,
         **kw
 ):
-    '''
+    '''Create an argparse ArgumentParser from a function!
     
     Arguments:
         func (callable):
@@ -103,10 +154,11 @@ def from_func(
     types = types or {}
 
     # 
-    if 'parents' in kw:
-        kw.setdefault('add_help', False)
+    # if 'parents' in kw:
+    #     kw.setdefault('add_help', False)
 
     # handle class init
+    cls = None
     if isinstance(func, type):
         cls = func
         func_name = func.__name__
@@ -121,19 +173,29 @@ def from_func(
     docs = docstr.parse(docs, style=docstyle) or None
     docargs = list(docs.children('args')) if docs else None
     description = docs.first('desc') if docs else None
+    desc_str = str(description) if description else None
 
     # create parser if not provided
     if not parser:
-        if 'formatter_class' not in kw:
-            kw['formatter_class'] = argparse.RawDescriptionHelpFormatter
-        if description and 'description' not in kw:
-            kw['description'] = str(description)
-        kw['prog'] = func_name if prog is True else prog
-        parser = ArgumentParser(**kw)
-    
+        if subparsers:
+            help_msg = desc_str.split('\n')[0] if desc_str else ''
+            parser = subparsers.add_parser(parser_name, help=help_msg or 'hi')
+        else:
+            parser = ArgumentParser(**kw)
+    parser._calling_object = cls if cls is not None else func
+    # use the function docstring description
+    if desc_str and 'description' not in kw:
+        parser.description = desc_str
+    # prog is the "name of the program" as displayed by the cli
+    # by default it is the script name e.g. myscript.py
+    prog = func_name if prog is True else prog
+    if prog:
+        parser.prog = prog
+
     # get signature
     s = starstar.signature(func)
-    short = _get_shortkw(s.parameters, reserved=['h'], short=short)
+    # short = _get_shortkw(s.parameters, reserved=['h'], short=short)
+    # short = {}
 
     # fix union syntax and get type hints
     s = copy.copy(s)
@@ -150,7 +212,7 @@ def from_func(
         pkw = {}
 
         flag_name = name
-        short_name = short.get(name)
+        # short_name = short.get(name)
 
         # check if the argument is positional
         var_pos = p.kind == VAR_POS
@@ -192,6 +254,10 @@ def from_func(
             if positional and 'nargs' not in pkw:
                 pkw['nargs'] = '?'
             pkw['default'] = default
+        if env_format:
+            env_key = env_format.format(name.upper())
+            if env_key in os.environ:
+                pkw['default'] = os.environ[env_key]
 
         # set action & type
 
@@ -203,8 +269,8 @@ def from_func(
                     if default is True:
                         pkw['action'] = 'store_false'
                         flag_name = f'no-{flag_name}'
-                        if short_name:
-                            short_name = f'no{short_name}'
+                        # if short_name:
+                        #     short_name = f'no{short_name}'
                     else:
                         pkw['action'] = 'store_true'
             if _lenient_subclass(dtype, (list, tuple)):
@@ -213,7 +279,7 @@ def from_func(
                 if 'nargs' not in pkw:
                     pkw['nargs'] = '+'
             elif 'type' not in pkw:
-                pkw['type'] = _type_checker(dtype)
+                pkw['type'] = _parse_type_checker(dtype)
         if 'type' not in pkw:
             pkw['type'] = parse
 
@@ -224,6 +290,9 @@ def from_func(
             elif 'action' not in pkw:
                 pkw['action'] = 'store_const'
             pkw['const'] = consts[name]
+
+        if pkw.get('action') in ('append_const', 'store_const', 'store_true', 'store_false'):
+            pkw.pop('type', None)
 
         # set choices
         if name in choices:
@@ -236,9 +305,7 @@ def from_func(
         if positional:
             argnames = [flag_name]
         else:
-            argnames = [f'--{flag_name}']
-            if name in short:
-                argnames.append(f'-{short_name}')
+            argnames = [f'-{flag_name}', f'--{flag_name}']
 
         # find the help message
         for darg in docargs or []:
@@ -248,23 +315,22 @@ def from_func(
                     if helpmsg:
                         pkw['help'] = str(helpmsg)
                         break
-        
-        # print(argnames, pkw)
+
         parser.add_argument(*argnames, **pkw)
     return parser
 
 
-# short arguments
+# # short arguments
 
-def _get_shortkw(parameters, ignore=(), reserved=(), short=None):
-    '''Given a set of arguments, find the natural short arguments e.g. ``--wow -> -w``'''
-    short = short or {}
-    for k in parameters:
-        if parameters[k].kind == POS_ONLY:
-            continue
-        if k not in ignore and k[0] not in reserved and k[0] not in short:
-            short[k] = k[0]
-    return short
+# def _get_shortkw(parameters, ignore=(), reserved=(), short=None):
+#     '''Given a set of arguments, find the natural short arguments e.g. ``--wow -> -w``'''
+#     short = short or {}
+#     for k in parameters:
+#         if parameters[k].kind == POS_ONLY:
+#             continue
+#         if k not in ignore and k[0] not in reserved and k[0] not in short:
+#             short[k] = k[0]
+#     return short
 
 
 
@@ -287,13 +353,20 @@ def _type_check(type, x):
         raise TypeError(f"{x} could not be cast to {type}")
     return type(x)
 
-def _type_checker(type):
-    '''A decorator for type checking.'''
+def _parse_type_checker(type):
     @functools.wraps(type)
-    def __type(x):  return _type_check(type, x)
+    def __type(x): return _type_check(type, parse(x))
     if __type.__name__ == '__type':
         __type.__name__ = __type.__qualname__ = _type_check_name(type)
     return __type
+
+# def _type_checker(type):
+#     '''A decorator for type checking.'''
+#     @functools.wraps(type)
+#     def __type(x):  return _type_check(type, x)
+#     if __type.__name__ == '__type':
+#         __type.__name__ = __type.__qualname__ = _type_check_name(type)
+#     return __type
 
 def _type_check_name(type):
     '''Get the name of a type check (including unions)'''
@@ -368,30 +441,70 @@ def _outer_comma_and_pipe_indices(s: str):
     return indices[COMMA], indices[OR]
 
 
+
+# calling the function
+
+
+def call_any(parser, args, _cmd_prefix=''):
+    # pull out the command from the arguments (so we don't pass it to the function)
+    a = dict(args)
+    cmd = a.pop(f'__{_cmd_prefix or ""}command', None)
+
+    # it's a nested object, keep going
+    if cmd is not None:
+        # from IPython import embed
+        # embed()
+        return call_any(next(
+            a._name_parser_map[cmd]
+            for a in parser._subparsers._group_actions
+            if cmd in a._name_parser_map
+        ), a, _cmd_prefix=f'{_cmd_prefix}__{cmd}')
+    
+    # no more sub-commands
+    obj = parser._calling_object
+    if not callable(obj):
+        parser.print_help()
+        parser.exit(1)
+
+    # call the function
+    a, kw = starstar.as_args_kwargs(obj, a)
+    return obj(*a, **kw)
+
+
+
 # Demo
 
 
+def Star(func, **kw):
+    parser = from_any(func, **kw)
+    # from IPython import embed
+    # embed()
+    args = parser.parse_args()
+    call_any(parser, vars(args))
 
-def myfunction(aaa, bbb=5, *a, wow: int|list, quoi='aaa', **kw):
-        '''Look at my function
-
-        I love it so much
-
-        Arguments:
-            aaa: first
-            bbbb: second thing
-            wow (int): ok cool
-            quoi (str): wow alright
-        '''
-        print(aaa,  bbb, a, wow, quoi, kw)
 
 if __name__ == '__main__':
-    # parser = from_func(myfunction, docstyle='google')
-    # args = parser.parse_args()
-    # print(args)
+    def myfunction(aaa: int, bbb=5, *a, items: list, indices: int|list, wow: bool=False, quoi='aaa', **kw):
+            '''Look at my function
 
-    parent = argparse.ArgumentParser()
-    parent.add_argument('--extra',  default=5)
-    parser = from_func(myfunction, parents=[parent], docstyle='google')
-    args = parser.parse_args()
-    print(args)
+            I love it so much
+
+            Arguments:
+                aaa: first
+                bbbb: second thing
+                wow (int): ok cool
+                quoi (str): wow alright
+            '''
+            print(aaa,  bbb, a, items, indices, wow, quoi, kw)
+
+
+    def my_other_thing(a, b, c):
+        print(a, b, c)
+
+    Star({
+        'xxx': myfunction,
+        'yyy': my_other_thing,
+        'aaa': {
+            'abc': myfunction
+        },
+    })
