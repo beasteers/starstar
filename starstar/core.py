@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import inspect
 from types import MappingProxyType
 from typing import Callable, Iterable, cast as tcast
@@ -525,6 +526,25 @@ def asitems(x, types=(list, tuple, set)):
         assert starstar.asitems([1, 2, 3]) == [1, 2, 3]
     '''
     return x if isinstance(x, types) else (x,) if x is not None else ()
+
+
+
+
+def args_from_env_vars(func, prefix='', *, include_varkw=False, mapper=str.upper, inv_mapper=str.lower):
+    '''Read function arguments from environment variables.'''
+    args = get_args(func)
+    wildcard = ['*'] if include_varkw and any(a.kind == VAR_KW for a in args) else []
+    names = [a.name for a in args if a.kind in NAMED] + wildcard
+    names = {n: f"{prefix or ''}{mapper(n)}" for n in names}
+
+    has_wildcard = include_varkw and any(a.kind == VAR_KW for a in args)
+    if include_varkw and has_wildcard:
+        assert prefix, "You probably don't want to capture every single environment variable. Please specify a prefix."
+        for k in os.environ:
+            if k.startswith(prefix):
+                names[inv_mapper(k.removeprefix(prefix))] = k
+
+    return {n: os.environ[k] for n, k in names.items() if k in os.environ}
 
 
 

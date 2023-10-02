@@ -3,6 +3,12 @@
 Ch-ch-ch-ch-changes
 ====================
 
+0.6.1
+--------------
+ - Adding beta :func:`starstar.argparse`
+    - Fix argparse description handling
+    - Get defaults from environment variables
+
 0.4.0
 --------------
  

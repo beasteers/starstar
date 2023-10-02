@@ -77,6 +77,7 @@ class ArgumentParser(argparse.ArgumentParser):
             values.append(arg)
         return super(ArgumentParser, self2).parse_args(*a)
 
+DESC_SEP = ': '
 
 def from_any(
         obj: Callable|dict, #|list|tuple
@@ -84,19 +85,20 @@ def from_any(
         parser: argparse.ArgumentParser|None=None, 
         subparsers: argparse.ArgumentParser|None=None,
         parser_name: str|None=None,
+        description: str|None=None,
         _cmd_prefix: str='',
         **kw
 ):
     if callable(obj) or isinstance(obj, type):
-        return from_func(obj, parser=parser, subparsers=subparsers, parser_name=parser_name, **kw)
+        return from_func(obj, parser=parser, subparsers=subparsers, parser_name=parser_name, description=description, **kw)
 
     # create parser if not provided
     if parser is None:
         if subparsers:
             assert parser_name
-            parser = subparsers.add_parser(parser_name, help='asdf')
+            parser = subparsers.add_parser(parser_name, help=description or '')
         else:
-            parser = ArgumentParser(**kw)
+            parser = ArgumentParser()
     # subparsers = parser._subparsers
     # if subparsers is None:
     subparsers = parser.add_subparsers(dest=f'__{_cmd_prefix or parser_name or ""}command', help='Available commands.')
@@ -110,7 +112,10 @@ def from_any(
     obj_for_parser = obj
     if isinstance(obj, dict):
         for name, obj_i in obj.items():
-            from_any(obj_i, subparsers=subparsers, parser_name=name, _cmd_prefix=f'{_cmd_prefix or ""}__{name}')
+            kwi = dict(kw)
+            if DESC_SEP in name:
+                name, kwi['description'] = name.split(DESC_SEP, 1)
+            from_any(obj_i, subparsers=subparsers, parser_name=name, _cmd_prefix=f'{_cmd_prefix or ""}__{name}', **kwi)
     else:
         # parser = from_any(vars(obj), **kw)
         raise TypeError("Object must be a function or a dict of functions.")
@@ -152,6 +157,8 @@ def from_func(
     nargs = nargs or {}
     dests = dests or {}
     types = types or {}
+    if env_format and '{' not in env_format:
+        env_format = f'{env_format}_{{}}'
 
     # 
     # if 'parents' in kw:
@@ -179,7 +186,7 @@ def from_func(
     if not parser:
         if subparsers:
             help_msg = desc_str.split('\n')[0] if desc_str else ''
-            parser = subparsers.add_parser(parser_name, help=help_msg or 'hi')
+            parser = subparsers.add_parser(parser_name, help=kw.get('description') or help_msg or '')
         else:
             parser = ArgumentParser(**kw)
     parser._calling_object = cls if cls is not None else func
@@ -247,6 +254,11 @@ def from_func(
         
         # set defaults
         default = defaults.get(name, p.default)
+        if env_format:
+            env_key = env_format.format(name.upper())
+            if env_key in os.environ:
+                default = os.environ[env_key]
+
         if default == inspect._empty:
             if not positional:
                 pkw['required'] = True
@@ -254,10 +266,6 @@ def from_func(
             if positional and 'nargs' not in pkw:
                 pkw['nargs'] = '?'
             pkw['default'] = default
-        if env_format:
-            env_key = env_format.format(name.upper())
-            if env_key in os.environ:
-                pkw['default'] = os.environ[env_key]
 
         # set action & type
 
@@ -471,19 +479,17 @@ def call_any(parser, args, _cmd_prefix=''):
     return obj(*a, **kw)
 
 
-
-# Demo
+# Top Level
 
 
 def Star(func, **kw):
     parser = from_any(func, **kw)
-    # from IPython import embed
-    # embed()
     args = parser.parse_args()
     call_any(parser, vars(args))
 
 
 if __name__ == '__main__':
+    # Demo
     def myfunction(aaa: int, bbb=5, *a, items: list, indices: int|list, wow: bool=False, quoi='aaa', **kw):
             '''Look at my function
 
@@ -501,10 +507,14 @@ if __name__ == '__main__':
     def my_other_thing(a, b, c):
         print(a, b, c)
 
+    def my_third_thing(a, b, c):
+        """aaaaa wowowow 3"""
+        print(a, b, c)
+
     Star({
         'xxx': myfunction,
-        'yyy': my_other_thing,
-        'aaa': {
-            'abc': myfunction
+        'yyy: lets run yyy!!': my_other_thing,
+        'aaa: lets run aaa!!': {
+            'abc': my_third_thing
         },
-    })
+    }, env_format="STARSTAR")
