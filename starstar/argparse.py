@@ -76,6 +76,9 @@ class ArgumentParser(argparse.ArgumentParser):
                 continue
             values.append(arg)
         return super(ArgumentParser, self2).parse_args(*a)
+    
+    def print_usage(self, file=None):
+        return self.print_help(file)
 
 DESC_SEP = ': '
 
@@ -131,15 +134,9 @@ def from_func(
         parser_name: str|None=None, 
         docstyle: str|None=None, 
         prog: str|bool|None=None, 
-        actions: dict[str, str]|None=None, 
-        choices: dict[str, list]|None=None, 
-        defaults: dict[str, Any]|None=None,
-        consts: dict[str, Any]|None=None, 
-        nargs: dict[str, int|str]|None=None, 
-        types: dict[str, Callable]|None=None, 
-        dests: dict[str, str]|None=None, 
-        # short: dict[str, str]|None=None,
+        args: dict[str, dict[str, Any]]|None=None,
         env_format: str|None=None,
+        description: str|None=None,
         **kw
 ):
     '''Create an argparse ArgumentParser from a function!
@@ -150,19 +147,9 @@ def from_func(
         docstyle (str): The name of the docstring style. Can be google or numpy.
 
     '''
-    actions = actions or {}
-    choices = choices or {}
-    defaults = defaults or {}
-    consts = consts or {}
-    nargs = nargs or {}
-    dests = dests or {}
-    types = types or {}
+    args_overrides = args or {}
     if env_format and '{' not in env_format:
         env_format = f'{env_format}_{{}}'
-
-    # 
-    # if 'parents' in kw:
-    #     kw.setdefault('add_help', False)
 
     # handle class init
     cls = None
@@ -170,29 +157,26 @@ def from_func(
         cls = func
         func_name = func.__name__
         docs = func.__init__.__doc__ or func.__doc__
-        func = func.__init__
+        func = func.__init__.__get__(func)  # FIXME: this is not right... this will break for some weirdo (I'm the kind of weirdo)
     else:
         func_name = func.__name__
         docs = func.__doc__
 
-
     # parse docstring
     docs = docstr.parse(docs, style=docstyle) or None
     docargs = list(docs.children('args')) if docs else None
-    description = docs.first('desc') if docs else None
-    desc_str = str(description) if description else None
+    desc = docs.first('desc') if docs else None
+    desc_str = str(desc or '')
 
     # create parser if not provided
     if not parser:
         if subparsers:
-            help_msg = desc_str.split('\n')[0] if desc_str else ''
-            parser = subparsers.add_parser(parser_name, help=kw.get('description') or help_msg or '')
+            help_msg = description or desc_str.split('\n')[0]
+            parser = subparsers.add_parser(parser_name, help=description or help_msg or '', description=description or desc_str)
         else:
-            parser = ArgumentParser(**kw)
+            parser = ArgumentParser(description=description or desc_str, **kw)
+    # add a reference to the function that we can use later
     parser._calling_object = cls if cls is not None else func
-    # use the function docstring description
-    if desc_str and 'description' not in kw:
-        parser.description = desc_str
     # prog is the "name of the program" as displayed by the cli
     # by default it is the script name e.g. myscript.py
     prog = func_name if prog is True else prog
@@ -201,146 +185,134 @@ def from_func(
 
     # get signature
     s = starstar.signature(func)
-    # short = _get_shortkw(s.parameters, reserved=['h'], short=short)
-    # short = {}
 
     # fix union syntax and get type hints
-    s = copy.copy(s)
-    anns = dict(func.__annotations__)
-    for n, tstr in list(anns.items()):
-        anns[n] = _repl_union(tstr)
-    type_hints = get_type_hints(TYPE(func_name, (object,), {'__annotations__': anns}))
+    type_hints = get_type_hints(TYPE(func_name, (object,), {'__annotations__': {
+        n: _repl_union(tstr) for n, tstr in dict(func.__annotations__).items()
+    }}))
 
     # make any arguments before varargs positional only
-    override_pos_only = any(p.kind == VAR_POS for p in s.parameters.values())
+    before_var_pos = any(p.kind == VAR_POS for p in s.parameters.values())
 
     # create each parameter
     for name, p in s.parameters.items():
-        pkw = {}
-
-        flag_name = name
-        # short_name = short.get(name)
-
-        # check if the argument is positional
-        var_pos = p.kind == VAR_POS
-        pos_only = p.kind == POS_ONLY
-        pos_kw = p.kind == POS_KW
-        positional = var_pos or pos_only or (override_pos_only and pos_kw)
-
-        # var arg specifics: *a, **kw
-        if var_pos:
-            # allow 0 or more
-            pkw['nargs'] =  '*'
-            # indicate that it gobbles up positional args
-            pkw['metavar'] = f'*{name}'
-            override_pos_only = False
-        elif p.kind == VAR_KW:
+        if p.kind == VAR_POS:
+            before_var_pos = False
+        if p.kind == VAR_KW:
             # can't handle varkw in here (see parse_args)
             parser.accept_var_kw = True
             continue
 
-        # manual nargs
-        if name in nargs:
-            pkw['nargs'] = nargs[name]
-        # manual action
-        if name in actions:
-            pkw['action'] = actions[name]
-        # custom type
-        if name in types:
-            pkw['type'] = types[name]
-        # rename destination
-        if name in dests:
-            pkw['dest'] = dests[name]
-        
-        # set defaults
-        default = defaults.get(name, p.default)
-        if env_format:
-            env_key = env_format.format(name.upper())
-            if env_key in os.environ:
-                default = os.environ[env_key]
-
-        if default == inspect._empty:
-            if not positional:
-                pkw['required'] = True
-        else:
-            if positional and 'nargs' not in pkw:
-                pkw['nargs'] = '?'
-            pkw['default'] = default
-
-        # set action & type
-
-        # use type annotation
-        dtype = type_hints.get(name)
-        if dtype:
-            if _lenient_subclass(dtype, bool):
-                if 'action' not in pkw:
-                    if default is True:
-                        pkw['action'] = 'store_false'
-                        flag_name = f'no-{flag_name}'
-                        # if short_name:
-                        #     short_name = f'no{short_name}'
-                    else:
-                        pkw['action'] = 'store_true'
-            if _lenient_subclass(dtype, (list, tuple)):
-                if 'action' not in pkw:
-                    pkw['action'] = 'extend'
-                if 'nargs' not in pkw:
-                    pkw['nargs'] = '+'
-            elif 'type' not in pkw:
-                pkw['type'] = _parse_type_checker(dtype)
-        if 'type' not in pkw:
-            pkw['type'] = parse
-
-        # manage constants
-        if name in consts:
-            if pkw.get('action') in {'append', 'extend'}:
-                pkw['action'] = 'append_const'
-            elif 'action' not in pkw:
-                pkw['action'] = 'store_const'
-            pkw['const'] = consts[name]
-
-        if pkw.get('action') in ('append_const', 'store_const', 'store_true', 'store_false'):
-            pkw.pop('type', None)
-
-        # set choices
-        if name in choices:
-            pkw['choices'] = choices[name]
-        elif type and get_origin(type) == Literal:
-            pkw['choices'] = get_args(type)
-
-        # create flags
-        flag_name = flag_name.replace('_', '-')
-        if positional:
-            argnames = [flag_name]
-        else:
-            argnames = [f'-{flag_name}', f'--{flag_name}']
-
-        # find the help message
-        for darg in docargs or []:
-            for dp in darg.body:
-                if dp.name == name:
-                    helpmsg = dp.get('desc')
-                    if helpmsg:
-                        pkw['help'] = str(helpmsg)
-                        break
-
+        argnames, pkw = get_args_from_parameter(
+            name, p, 
+            before_var_pos=before_var_pos,
+            type_hints=type_hints, 
+            doc_args=docargs, 
+            env_format=env_format, 
+            **(args_overrides.get(name) or {}))
         parser.add_argument(*argnames, **pkw)
     return parser
 
 
-# # short arguments
+def get_args_from_parameter(name, p, *, before_var_pos=None, type_hints=None, doc_args=None, env_format=None, **pkw):
+    flag_name = name
 
-# def _get_shortkw(parameters, ignore=(), reserved=(), short=None):
-#     '''Given a set of arguments, find the natural short arguments e.g. ``--wow -> -w``'''
-#     short = short or {}
-#     for k in parameters:
-#         if parameters[k].kind == POS_ONLY:
-#             continue
-#         if k not in ignore and k[0] not in reserved and k[0] not in short:
-#             short[k] = k[0]
-#     return short
+    # check if the argument is positional
+    var_pos = p.kind == VAR_POS
+    pos_only = p.kind == POS_ONLY
+    pos_kw = p.kind == POS_KW
+    positional = var_pos or pos_only or (before_var_pos and pos_kw)
 
+    # var arg specifics: *a, **kw
+    if var_pos:
+        # allow 0 or more
+        if 'nargs' not in pkw:
+            pkw['nargs'] = '*'
+        # indicate that it gobbles up positional args
+        if 'metavar' not in pkw:
+            pkw['metavar'] = f'*{name}'
+    elif p.kind == VAR_KW:
+        raise ValueError(f"Can't create arguments for **{name}.")
+    
+    # --------------------------------- Defaults --------------------------------- #
 
+    # set defaults. Priority: 1. environment variable, 2. args override, 3. function default.
+    default = pkw.get('default', p.default)
+    if env_format:  # check env vars
+        env_key = env_format.format(name.upper())
+        env_val = os.getenv(env_key)
+        if env_val:
+            default = env_val
+
+    if default == inspect._empty:  # required argument
+        if not positional:
+            pkw['required'] = True
+            pkw.pop('default', None)
+    else:  # optional argument
+        if positional and 'nargs' not in pkw:
+            pkw['nargs'] = '?'
+        pkw['default'] = default
+
+    # -------------------------- Type specific settings -------------------------- #
+
+    # create using either type hints or from default value dtype.
+    dtype = type_hints.get(name)
+
+    # bools should take no argument
+    if dtype and _lenient_subclass(dtype, bool):
+        if 'action' not in pkw:
+            if default is True:  # flip flag from "--enable" to be "--no-enable"
+                pkw['action'] = 'store_false'
+                flag_name = f'no-{flag_name}'
+            else:  # just a regular old boolean flag.
+                pkw['action'] = 'store_true'
+
+    # allow variable argument lists for list/tuple type annotations
+    if dtype and _lenient_subclass(dtype, (list, tuple)):# or 'default' in pkw and isinstance(pkw['default'], (list, tuple))
+        if 'action' not in pkw:
+            pkw['action'] = 'extend'
+        if 'nargs' not in pkw:
+            pkw['nargs'] = '+'
+    # otherwise, parse then cast to type in order of specification (e.g. int|list will try int first then list).
+    elif dtype and 'type' not in pkw:
+        pkw['type'] = _parse_type_checker(dtype)
+    # no type specific handling, just parse.
+    if 'type' not in pkw:
+        pkw['type'] = parse
+
+    # get choices from type hint - e.g. Literal["open", "closed", "ajar"]
+    if 'choices' not in pkw and dtype and get_origin(dtype) == Literal:
+        pkw['choices'] = get_args(dtype)
+
+    # manage constants
+    if 'const' in pkw:
+        if pkw.get('action') in {'append', 'extend'}:
+            pkw['action'] = 'append_const'
+        elif 'action' not in pkw:
+            pkw['action'] = 'store_const'
+
+    # (I forget, I think these are incompatible?)
+    if pkw.get('action') in ('append_const', 'store_const', 'store_true', 'store_false'):
+        pkw.pop('type', None)
+
+    # ----------------------------------- Flags ---------------------------------- #
+
+    # create flags
+    flag_name = flag_name.replace('_', '-')
+    if positional:
+        argnames = [flag_name]
+    else:
+        argnames = [f'-{flag_name}', f'--{flag_name}']
+
+    # find the help message
+    dps = (dp for darg in doc_args or [] for dp in darg.body)
+    for dp in dps:
+        if dp.name == name:
+            helpmsg = dp.get('desc')
+            if helpmsg:
+                pkw['help'] = str(helpmsg)
+                break
+    return argnames, pkw
 
 # type checkers
 
@@ -469,7 +441,10 @@ def call_any(parser, args, _cmd_prefix=''):
         ), a, _cmd_prefix=f'{_cmd_prefix}__{cmd}')
     
     # no more sub-commands
-    obj = parser._calling_object
+    try:
+        obj = parser._calling_object
+    except AttributeError:
+        raise RuntimeError(f"{cmd!r} Parser missing function/object reference. {parser}")
     if not callable(obj):
         parser.print_help()
         parser.exit(1)
@@ -490,7 +465,7 @@ def Star(func, **kw):
 
 if __name__ == '__main__':
     # Demo
-    def myfunction(aaa: int, bbb=5, *a, items: list, indices: int|list, wow: bool=False, quoi='aaa', **kw):
+    def myfunction(aaa: int, bbb=5, *a, items: list, indices: int|list, ixs=[], wow: bool=False, quoi='aaa', **kw):
             '''Look at my function
 
             I love it so much
@@ -501,7 +476,7 @@ if __name__ == '__main__':
                 wow (int): ok cool
                 quoi (str): wow alright
             '''
-            print(aaa,  bbb, a, items, indices, wow, quoi, kw)
+            print(aaa,  bbb, a, items, indices, ixs, wow, quoi, kw)
 
 
     def my_other_thing(a, b, c):
@@ -511,10 +486,19 @@ if __name__ == '__main__':
         """aaaaa wowowow 3"""
         print(a, b, c)
 
+    class Something:
+        """Hello"""
+        def __init__(self, asdf):
+            """Hi there"""
+            pass
+        def asdf(self, a):
+            pass
+
     Star({
         'xxx': myfunction,
         'yyy: lets run yyy!!': my_other_thing,
         'aaa: lets run aaa!!': {
             'abc': my_third_thing
         },
+        'some': Something,
     }, env_format="STARSTAR")
